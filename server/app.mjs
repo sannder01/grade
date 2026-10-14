@@ -12,6 +12,8 @@ export function createApp(auth) {
   app.disable('x-powered-by')
   app.set('trust proxy', 1)
   app.use((req, res, next) => {
+    // Overwrite a private header from Express's proxy-aware client address.
+    req.headers['x-grade-client-ip'] = req.ip
     res.set({
       'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'strict-origin-when-cross-origin',
       'X-Frame-Options': 'DENY',
@@ -30,6 +32,11 @@ export function createApp(auth) {
   })
   app.all('/api/auth/*splat', toNodeHandler(auth))
   app.use(express.json({ limit: '32kb' }))
+  app.use('/api', (req, _res, next) => {
+    if (['POST','PUT','PATCH'].includes(req.method) && (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)))
+      return next(new HttpError(400, 'Ожидается JSON-объект'))
+    next()
+  })
   app.use('/api', async (req, _res, next) => {
     const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) })
     req.user = session?.user || null

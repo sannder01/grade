@@ -47,6 +47,11 @@ test('public profiles, independent collections and real aggregate scores persist
   await call(a.api,`/api/titles/${first}/rating`,'PUT',{score:11},400)
   expect((await a.api.put(`/api/titles/${first}/watched`,{headers:{Origin:'https://evil.test'},data:{watched:true}})).status()).toBe(403)
   expect((await a.api.put(`/api/titles/${first}/watched`,{data:{watched:'true'}})).status()).toBe(400)
+  await call(a.api,'/api/auth/sign-out','POST',{})
+  expect((await call(a.api,'/api/me')).user).toBeNull()
+  await call(a.api,'/api/auth/sign-in/username','POST',{username:a.username,password})
+  expect((await call(a.api,'/api/me')).user.username).toBe(a.username)
+  expect((await call(a.api,`/api/profiles/${a.username}`)).stats.rated).toBe(1)
   await a.api.dispose();await b.api.dispose()
 })
 
@@ -131,7 +136,20 @@ test('public pages fit phone, tablet and desktop with readable empty states',asy
       await page.goto(route)
       await expect(page.locator('main h1')).toBeVisible()
       expect(await page.evaluate(()=>document.documentElement.scrollWidth),`${width} ${route}`).toBeLessThanOrEqual(width+1)
-      if(route==='/')await page.screenshot({path:`test-results/grade-home-${width}.png`,fullPage:true})
+      if(route==='/') {
+        await page.screenshot({path:`test-results/grade-home-${width}.png`,fullPage:true})
+        if ([390,1440].includes(width)) {
+          const capture=await page.screenshot({type:'jpeg',quality:60})
+          const preview=await page.evaluate(async (base64)=>{
+            const image=new Image();image.src='data:image/jpeg;base64,'+base64;await image.decode()
+            const canvas=document.createElement('canvas');canvas.width=Math.min(900,image.width);canvas.height=Math.round(image.height*canvas.width/image.width)
+            canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height)
+            return canvas.toDataURL('image/jpeg',0.7).split(',')[1]
+          },capture.toString('base64'))
+          const {writeFile}=await import('node:fs/promises')
+          await writeFile(`test-results/grade-review-${width}.jpg`,Buffer.from(preview,'base64'))
+        }
+      }
     }
   }
   await page.goto('/catalog?q=unfindable-title-000000')

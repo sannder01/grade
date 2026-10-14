@@ -50,11 +50,11 @@ export function closeModal() { document.querySelector('#modal').close() }
 export function empty(title, description, link = '/catalog', label = 'Открыть каталог') {
   return `<div class="empty-state">${icon('spark')}<h2>${esc(title)}</h2><p>${esc(description)}</p><a class="button primary" href="${esc(link)}">${esc(label)} ${icon('arrow')}</a></div>`
 }
-export function cards(items) {
+export function cards(items, showWatch = true) {
   return `<div class="poster-grid">${items.map((item) => `<article class="title-card" data-title="${item.id}">
     <a href="/title/${item.id}" class="poster-link">${poster(item)}<span class="poster-kind">${kindName(item.kind)}</span>${item.watched ? `<span class="watched-badge">${icon('check')} Смотрел</span>` : ''}${item.my_score ? `<span class="personal-score">${icon('star')} ${item.my_score}</span>` : ''}</a>
     <div class="card-info"><a href="/title/${item.id}" class="card-title">${esc(item.name)}</a><div class="card-meta"><span>${item.year || '—'} · ${kindName(item.kind)}</span>${item.votes ? `<span class="community-score">${icon('star')} ${item.average}</span>` : ''}</div>
-    <button class="card-watch ${item.watched ? 'selected' : ''}" type="button" data-action="watch" data-id="${item.id}" data-watched="${item.watched ? 'true' : 'false'}">${icon(item.watched ? 'check' : 'plus')} ${item.watched ? 'Смотрел' : 'В просмотренное'}</button></div>
+    ${showWatch ? `<button class="card-watch ${item.watched ? 'selected' : ''}" type="button" data-action="watch" data-id="${item.id}" data-watched="${item.watched ? 'true' : 'false'}">${icon(item.watched ? 'check' : 'plus')} ${item.watched ? 'Смотрел' : 'В просмотренное'}</button>` : ''}</div>
   </article>`).join('')}</div>`
 }
 export function pager(page, pages, makeUrl) {

@@ -24,6 +24,6 @@ export async function migrate(auth) {
   }
 }
 if (process.argv[1]?.endsWith('scripts/migrate.mjs')) {
-  try { await migrate(createAuth()); console.log('Grade database ready') }
+  try { await migrate(createAuth({ validateSchema: false })); console.log('Grade database ready') }
   finally { await pool.end() }
 }
