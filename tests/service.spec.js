@@ -53,6 +53,7 @@ test('registration, sessions and writes work on an additional exact site address
     expect(profile.stats.rated).toBe(0)
     const title=(await (await context.request.get('/api/catalog')).json()).items[0].id
     expect((await context.request.put(`/api/titles/${title}/rating`,{headers:{Origin:alias},data:{score:8}})).status()).toBe(200)
+    expect((await context.request.delete(`/api/titles/${title}/rating`,{headers:{Origin:alias}})).status()).toBe(200)
     for(const origin of ['https://unrelated.vercel.app',alias+'.attacker.test','null'])
       expect((await context.request.post('/api/auth/sign-up/email',{headers:{Origin:origin},data:{}})).status()).toBe(403)
     expect((await (await context.request.get(baseURL+'/api/me')).json()).user).toBeNull()
