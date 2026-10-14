@@ -171,6 +171,35 @@ test('registration UI, watched onboarding, ratings, reviews and spoiler controls
   expect(errors).toEqual([])
 })
 
+test('normal public search includes external titles automatically and keeps local results on provider failure',async({page,request})=>{
+  expect((await request.get('/api/catalog/external?q=x')).status()).toBe(400)
+  const local=(await (await request.get('/api/catalog')).json()).items[0]
+  let unavailable=false,imports=0
+  await page.route('**/api/catalog?*',async route=>{
+    const response=await route.fetch(),body=await response.json()
+    await route.fulfill({response,json:{...body,externalSearch:true}})
+  })
+  await page.route('**/api/catalog/external?*',async route=>{
+    expect(new URL(route.request().url()).searchParams.get('q')).toBe(local.name)
+    if(unavailable) return route.fulfill({status:502,json:{error:'Внешний каталог временно недоступен.'}})
+    await route.fulfill({json:{items:[local,{external_id:'movie:987654321',name:'История из внешнего каталога',kind:'movie',year:2025,poster:''}]}})
+  })
+  await page.route('**/api/catalog/import',async route=>{imports++;await route.abort()})
+  await page.goto('/catalog?q='+encodeURIComponent(local.name))
+  await expect(page.locator('.title-card')).toHaveCount(1)
+  await expect(page.locator('.external-item')).toHaveCount(1)
+  await expect(page.getByRole('button',{name:'Открыть История из внешнего каталога',exact:true})).toBeVisible()
+  await expect(page.getByRole('heading',{name:'Пока ничего не нашлось'})).toHaveCount(0)
+  await page.getByRole('button',{name:'Открыть История из внешнего каталога',exact:true}).click()
+  await expect(page.locator('#modal')).toBeVisible()
+  expect(imports).toBe(0)
+  await page.locator('.modal-close').click()
+  unavailable=true
+  await page.reload()
+  await expect(page.locator('.title-card')).toHaveCount(1)
+  await expect(page.getByRole('status')).toContainText('Поиск по Grade продолжает работать')
+})
+
 test('public pages fit phone, tablet and desktop with readable empty states',async({page})=>{
   const errors=[];page.on('pageerror',error=>errors.push(error.message))
   const result=await (await page.request.get('/api/catalog')).json()

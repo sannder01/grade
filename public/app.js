@@ -1,7 +1,7 @@
 import { api, esc, icon, avatar, poster, kindName, toast, openModal, closeModal, empty, cards, pager } from './ui.js'
 
 const main = document.querySelector('#main')
-const state = { me: null, generation: 0, title: null, discussion: null, external: [], onboarding: null }
+const state = { me: null, generation: 0, title: null, discussion: null, onboarding: null }
 const params = () => new URLSearchParams(location.search)
 const urlFor = (values) => `/catalog?${new URLSearchParams(values)}`
 function navigate(url, replace = false) {
@@ -94,11 +94,20 @@ async function homePage() {
 async function catalogPage() {
   const p = params(), kind = p.get('kind') || '', search = p.get('q') || '', sort = p.get('sort') || 'popular'
   const result = await api(`/api/catalog?${new URLSearchParams({ kind, q:search, sort, page:p.get('page') || '1' })}`)
-  return `<div class="container page"><header class="page-heading"><div><p class="eyebrow">ЧТО ПОСМОТРИМ?</p><h1>${search ? `Поиск: «${esc(search)}»` : 'Ваша следующая история<span class="accent">.</span>'}</h1><p>${search ? `Найдено тайтлов: ${result.total}` : 'Знакомое и ещё не открытое. Выбирайте по настроению.'}</p></div><span class="catalog-count">${result.total} <small>тайтлов</small></span></header>
+  let external = [], externalError = ''
+  if (search.trim().length >= 2 && result.externalSearch && result.page === 1) {
+    try {
+      const data = await api(`/api/catalog/external?${new URLSearchParams({ q:search, kind })}`)
+      external = data.items.filter(item => !result.items.some(local => local.source === 'tmdb' && local.external_id === item.external_id))
+    } catch (error) { externalError = error.message }
+  }
+  return `<div class="container page"><header class="page-heading"><div><p class="eyebrow">ЧТО ПОСМОТРИМ?</p><h1>${search ? `Поиск: «${esc(search)}»` : 'Ваша следующая история<span class="accent">.</span>'}</h1><p>${search ? result.externalSearch ? 'Ищем в Grade и большом каталоге аниме, фильмов и сериалов.' : `Найдено тайтлов: ${result.total}` : 'Знакомое и ещё не открытое. Выбирайте по настроению.'}</p></div><span class="catalog-count">${search ? result.items.length + external.length : result.total} <small>${search ? 'показано' : 'тайтлов'}</small></span></header>
     <div class="catalog-toolbar"><nav class="category-pills" aria-label="Тип тайтла">${[['','Всё вместе'],['anime','Аниме'],['movie','Фильмы'],['series','Сериалы']].map(([value,label]) => `<a class="${kind === value ? 'active' : ''}" href="${esc(urlFor({kind:value,q:search,sort}))}">${label}</a>`).join('')}</nav><label class="sort-label">Сначала<select id="catalog-sort"><option value="popular" ${sort === 'popular' ? 'selected' : ''}>Популярное</option><option value="rating" ${sort === 'rating' ? 'selected' : ''}>Высокие оценки Grade</option><option value="new" ${sort === 'new' ? 'selected' : ''}>Новые по году</option></select></label></div>
-    ${result.items.length ? cards(result.items) : empty('Пока ничего не нашлось', 'Попробуйте другое название, оригинальное имя или жанр.')}
+    ${result.items.length ? cards(result.items) : external.length ? '' : empty('Пока ничего не нашлось', 'Попробуйте другое название, оригинальное имя или жанр.')}
     ${pager(result.page, result.pages, (page) => urlFor({kind,q:search,sort,page}))}
-    ${search && result.externalSearch ? '<div class="external-search"><p>Ищете что-то за пределами подборки?</p><button class="button secondary" data-action="external-search">Искать в TMDB '+icon('arrow')+'</button><div id="external-results"></div></div>' : '<p class="catalog-source-note">Стартовая подборка известных историй. Оценки Grade появляются только от реальных пользователей.</p>'}</div>`
+    ${external.length ? `<section class="external-search" aria-label="Внешний каталог"><p>Из большого каталога · TMDB</p><div class="external-grid">${external.map(item => `<button type="button" class="external-item" data-action="import-title" data-external-id="${esc(item.external_id)}" aria-label="Открыть ${esc(item.name)}">${poster(item)}<span><strong>${esc(item.name)}</strong><small>${item.year || '—'} · ${kindName(item.kind)}</small></span>${icon('arrow')}</button>`).join('')}</div></section>` : ''}
+    ${externalError ? `<p class="catalog-source-note" role="status">${esc(externalError)} Поиск по Grade продолжает работать.</p>` : ''}
+    ${search ? '' : '<p class="catalog-source-note">Стартовая подборка известных историй. Оценки Grade появляются только от реальных пользователей.</p>'}</div>`
 }
 
 async function profilePage(username) {
@@ -288,19 +297,10 @@ document.addEventListener('click', async (event) => {
         state.onboarding.index++
         return render()
       }
-      if (action === 'external-search') {
-        if (!needUser()) return
-        button.disabled = true
-        const data = await api(`/api/catalog/external?q=${encodeURIComponent(params().get('q'))}`)
-        state.external = data.items
-        document.querySelector('#external-results').innerHTML = data.items.length ? `<div class="external-grid">${data.items.map((item,i) => `<button type="button" class="external-item" data-action="import-title" data-index="${i}">${poster(item)}<span><strong>${esc(item.name)}</strong><small>${item.year || '—'} · ${kindName(item.kind)}</small></span>${icon('plus')}</button>`).join('')}</div>` : '<p class="muted">Во внешнем каталоге тоже ничего не нашлось.</p>'
-        return
-      }
       if (action === 'import-title') {
         if (!needUser()) return
         button.disabled = true
-        const item = state.external[Number(button.dataset.index)]
-        const data = await api('/api/catalog/import',{method:'POST',body:{external_id:item.external_id}})
+        const data = await api('/api/catalog/import',{method:'POST',body:{external_id:button.dataset.externalId}})
         return navigate(`/title/${data.id}`)
       }
     } catch (error) { toast(error.message) }

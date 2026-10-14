@@ -47,12 +47,15 @@ export function createApp(auth) {
     if (!req.user) throw new HttpError(401, 'Войдите в аккаунт, чтобы продолжить')
     return req.user.id
   }
-  const write = async (req) => {
-    const userId = requireUser(req)
+  const limitRequests = async (key, max) => {
     const result = await query(`INSERT INTO request_limits(key,count,expires_at) VALUES($1,1,NOW()+INTERVAL '1 minute')
       ON CONFLICT(key) DO UPDATE SET count=CASE WHEN request_limits.expires_at<NOW() THEN 1 ELSE request_limits.count+1 END,
-      expires_at=CASE WHEN request_limits.expires_at<NOW() THEN NOW()+INTERVAL '1 minute' ELSE request_limits.expires_at END RETURNING count`, [userId])
-    if (result.rows[0].count > 60) throw new HttpError(429, 'Слишком много действий. Подождите минуту.')
+      expires_at=CASE WHEN request_limits.expires_at<NOW() THEN NOW()+INTERVAL '1 minute' ELSE request_limits.expires_at END RETURNING count`, [key])
+    if (result.rows[0].count > max) throw new HttpError(429, 'Слишком много действий. Подождите минуту.')
+  }
+  const write = async (req) => {
+    const userId = requireUser(req)
+    await limitRequests(userId, 60)
     return userId
   }
   app.get('/api/health', async (_req, res) => { await query('SELECT 1'); res.json({ ok: true }) })
@@ -78,8 +81,10 @@ export function createApp(auth) {
   })
   app.get('/api/catalog', async (req, res) => res.json(await catalog(req.query, req.user?.id)))
   app.get('/api/catalog/external', async (req, res) => {
-    await write(req)
-    res.json({ items: await externalSearch(text(req.query.q, { min: 2, max: 100, label: 'Поиск' })) })
+    const search = text(req.query.q, { min: 2, max: 100, label: 'Поиск' })
+    await limitRequests(`search:${req.user?.id || req.ip}`, 30)
+    const kind = ['anime','movie','series'].includes(req.query.kind) ? req.query.kind : null
+    res.json({ items: await externalSearch(search, kind) })
   })
   app.post('/api/catalog/import', async (req, res) => {
     await write(req)

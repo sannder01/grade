@@ -24,13 +24,30 @@ export async function titleById(value, userId = null) {
   return rows[0]
 }
 
-export async function externalSearch(search) {
+const externalCache = new Map()
+export async function externalSearch(search, kind = null) {
   if (!process.env.TMDB_READ_TOKEN) throw new HttpError(503, 'Внешний каталог ещё не подключён. Поиск по подборке Grade доступен.')
+  const cacheKey = search.trim().toLocaleLowerCase()
+  let cached = externalCache.get(cacheKey)
+  if (!cached || cached.expires < Date.now()) {
+    if (externalCache.size >= 100) externalCache.delete(externalCache.keys().next().value)
+    cached = { expires: Date.now() + 10 * 60 * 1000, value: fetchExternal(search) }
+    externalCache.set(cacheKey, cached)
+    cached.value.catch(() => { if (externalCache.get(cacheKey) === cached) externalCache.delete(cacheKey) })
+  }
+  const items = await cached.value
+  return kind ? items.filter(item => item.kind === kind) : items
+}
+async function fetchExternal(search) {
   const url = new URL('https://api.themoviedb.org/3/search/multi')
   url.search = new URLSearchParams({ query: search, language: 'ru-RU', include_adult: 'false' }).toString()
-  const response = await fetch(url, { headers: { Authorization: `Bearer ${process.env.TMDB_READ_TOKEN}` }, signal: AbortSignal.timeout(8000) })
-  if (!response.ok) throw new HttpError(502, 'Каталог временно недоступен. Попробуйте позже.')
-  const data = await response.json()
+  let data
+  try {
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${process.env.TMDB_READ_TOKEN}` }, signal: AbortSignal.timeout(8000) })
+    if (!response.ok) throw new Error('Provider unavailable')
+    data = await response.json()
+    if (!Array.isArray(data.results)) throw new Error('Invalid provider response')
+  } catch { throw new HttpError(502, 'Внешний каталог временно недоступен. Попробуйте позже.') }
   return data.results.filter((row) => ['movie','tv'].includes(row.media_type) && !row.adult).map((row) => ({
     external_id: `${row.media_type}:${row.id}`, name: row.title || row.name, original_name: row.original_title || row.original_name,
     kind: row.original_language === 'ja' && row.genre_ids?.includes(16) ? 'anime' : row.media_type === 'tv' ? 'series' : 'movie',
