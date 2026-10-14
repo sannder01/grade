@@ -1,11 +1,12 @@
 import pg from 'pg'
 
+export const databaseURL = process.env.DATABASE_URL || process.env.DATABASE_PUBLIC_URL
 export const databaseSchema = process.env.DATABASE_SCHEMA || 'grade'
 if (!/^[a-z][a-z0-9_]{0,62}$/.test(databaseSchema))
   throw new Error('DATABASE_SCHEMA must be a lowercase PostgreSQL identifier')
 
 export const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: databaseURL,
   options: `-c search_path=${databaseSchema}`,
   ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: true } : false,
   max: 10,

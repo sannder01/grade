@@ -1,11 +1,11 @@
 import { readFile } from 'node:fs/promises'
 import { getMigrations } from 'better-auth/db/migration'
-import { pool, ensureSchema } from '../server/db.mjs'
+import { pool, ensureSchema, databaseURL } from '../server/db.mjs'
 import { createAuth } from '../server/auth.mjs'
 import { seed } from '../server/seed.mjs'
 
 export async function migrate(auth) {
-  if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required')
+  if (!databaseURL) throw new Error('DATABASE_URL or DATABASE_PUBLIC_URL is required')
   await ensureSchema()
   const client = await pool.connect()
   try {
