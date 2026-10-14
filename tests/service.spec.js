@@ -45,6 +45,7 @@ test('registration, sessions and writes work on an additional exact site address
     await expect(page).toHaveURL(alias+'/start')
     await page.getByRole('button',{name:'Смотрел',exact:true}).click()
     await page.getByRole('button',{name:'Закончить подборку',exact:true}).click()
+    await expect(page).toHaveURL(new RegExp(`/u/${username}\\?tab=watched$`))
     await page.reload()
     await expect(page.locator('.title-card')).toHaveCount(1)
     const profile=await (await context.request.get(`/api/profiles/${username}`)).json()
