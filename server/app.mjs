@@ -5,10 +5,12 @@ import { toNodeHandler, fromNodeHeaders } from 'better-auth/node'
 import { query, transaction } from './db.mjs'
 import { catalog, titleById, externalSearch, importTitle } from './catalog.mjs'
 import { HttpError, text, id, score, boolean, page, spoilerContent } from './validation.mjs'
+import { getTrustedOrigins } from './origins.mjs'
 
 const publicPath = fileURLToPath(new URL('../public/', import.meta.url))
 export function createApp(auth) {
   const app = express()
+  const trustedOrigins = new Set(getTrustedOrigins())
   app.disable('x-powered-by')
   app.set('trust proxy', 1)
   app.use((req, res, next) => {
@@ -24,8 +26,7 @@ export function createApp(auth) {
   app.use('/api', (req, res, next) => {
     res.set({ 'Cache-Control': 'no-store, private', Vary: 'Cookie' })
     if (!['GET','HEAD','OPTIONS'].includes(req.method)) {
-      const expected = new URL(process.env.BETTER_AUTH_URL).origin
-      if (req.headers.origin ? req.headers.origin !== expected : req.headers['sec-fetch-site'] !== 'same-origin')
+      if (req.headers.origin ? !trustedOrigins.has(req.headers.origin) : req.headers['sec-fetch-site'] !== 'same-origin')
         return next(new HttpError(403, 'Запрос должен быть отправлен с сайта Grade'))
     }
     next()

@@ -30,6 +30,7 @@ jobs:
       DATABASE_SSL: 'false'
       DATABASE_SCHEMA: grade_ci
       BETTER_AUTH_URL: http://127.0.0.1:3100
+      TRUSTED_ORIGINS: http://127.0.0.2:3100
       BETTER_AUTH_SECRET: isolated-grade-ci-secret-only-not-for-production-2026
     steps:
       - uses: actions/checkout@v4
@@ -42,6 +43,11 @@ jobs:
       - run: node scripts/setup-ci.mjs
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
+      - name: Check registration origins on production domains
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: node scripts/check-production.mjs
+        env:
+          GRADE_CHECK_ORIGINS: https://grade-rho-eight.vercel.app,https://grade-sanders-projects-2d7568a0.vercel.app
       - name: Prepare visual review output
         if: always()
         run: node scripts/ci-review.mjs

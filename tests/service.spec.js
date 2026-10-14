@@ -29,6 +29,38 @@ async function call(api,path,method='GET',data,status=200) {
   return response.json()
 }
 
+test('registration, sessions and writes work on an additional exact site address',async({browser})=>{
+  const alias='http://127.0.0.2:3100',username='alias'+stamp()
+  const context=await browser.newContext({baseURL:alias,extraHTTPHeaders:{'X-Forwarded-For':'198.51.100.23'}})
+  try {
+    const page=await context.newPage()
+    await page.goto('/')
+    await page.getByRole('button',{name:/^Войти/}).click()
+    await page.getByRole('button',{name:'Зарегистрироваться',exact:true}).click()
+    await page.getByLabel('Как вас зовут',{exact:true}).fill('Зритель с другого адреса')
+    await page.getByLabel('Никнейм',{exact:true}).fill(username)
+    await page.getByLabel('Почта',{exact:true}).fill(username+'@example.test')
+    await page.getByLabel('Пароль',{exact:true}).fill(password)
+    await page.getByRole('button',{name:'Создать аккаунт',exact:false}).click()
+    await expect(page).toHaveURL(alias+'/start')
+    await page.getByRole('button',{name:'Смотрел',exact:true}).click()
+    await page.getByRole('button',{name:'Закончить подборку',exact:true}).click()
+    await page.reload()
+    await expect(page.locator('.title-card')).toHaveCount(1)
+    const profile=await (await context.request.get(`/api/profiles/${username}`)).json()
+    expect(profile.stats.watched).toBe(1)
+    expect(profile.stats.rated).toBe(0)
+    const title=(await (await context.request.get('/api/catalog')).json()).items[0].id
+    expect((await context.request.put(`/api/titles/${title}/rating`,{headers:{Origin:alias},data:{score:8}})).status()).toBe(200)
+    for(const origin of ['https://unrelated.vercel.app',alias+'.attacker.test','null'])
+      expect((await context.request.post('/api/auth/sign-up/email',{headers:{Origin:origin},data:{}})).status()).toBe(403)
+    expect((await (await context.request.get(baseURL+'/api/me')).json()).user).toBeNull()
+    expect((await context.request.post('/api/auth/sign-out',{headers:{Origin:alias},data:{}})).status()).toBe(200)
+    expect((await context.request.post('/api/auth/sign-in/username',{headers:{Origin:alias},data:{username,password}})).status()).toBe(200)
+    expect((await (await context.request.get('/api/me')).json()).user.username).toBe(username)
+  }finally{await context.close()}
+})
+
 test('public profiles, independent collections and real aggregate scores persist',async({playwright,request})=>{
   const a=await register(playwright,'alice'),b=await register(playwright,'blair')
   const titles=(await call(a.api,'/api/catalog')).items
