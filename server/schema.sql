@@ -1,0 +1,49 @@
+CREATE TABLE IF NOT EXISTS titles (
+  id BIGSERIAL PRIMARY KEY,
+  source TEXT NOT NULL DEFAULT 'curated', external_id TEXT,
+  name TEXT NOT NULL, original_name TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL CHECK(kind IN ('anime','movie','series')),
+  year INTEGER, description TEXT NOT NULL DEFAULT '',
+  poster TEXT NOT NULL DEFAULT '', backdrop TEXT NOT NULL DEFAULT '',
+  genres TEXT[] NOT NULL DEFAULT '{}', runtime TEXT NOT NULL DEFAULT '',
+  popularity NUMERIC NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(source,external_id)
+);
+CREATE TABLE IF NOT EXISTS profiles (
+  user_id TEXT PRIMARY KEY REFERENCES "user"(id) ON DELETE CASCADE,
+  bio TEXT NOT NULL DEFAULT '', onboarding_done BOOLEAN NOT NULL DEFAULT FALSE
+);
+CREATE TABLE IF NOT EXISTS watched (
+  user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  title_id BIGINT NOT NULL REFERENCES titles(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(user_id,title_id)
+);
+CREATE TABLE IF NOT EXISTS ratings (
+  user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  title_id BIGINT NOT NULL REFERENCES titles(id) ON DELETE CASCADE,
+  score INTEGER NOT NULL CHECK(score BETWEEN 1 AND 10),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(user_id,title_id)
+);
+CREATE TABLE IF NOT EXISTS reviews (
+  id BIGSERIAL PRIMARY KEY, user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  title_id BIGINT NOT NULL REFERENCES titles(id) ON DELETE CASCADE,
+  content TEXT NOT NULL CHECK(length(content) BETWEEN 20 AND 10000), spoiler BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(user_id,title_id)
+);
+CREATE TABLE IF NOT EXISTS comments (
+  id BIGSERIAL PRIMARY KEY, user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  title_id BIGINT NOT NULL REFERENCES titles(id) ON DELETE CASCADE,
+  parent_id BIGINT REFERENCES comments(id) ON DELETE CASCADE,
+  content TEXT NOT NULL CHECK(length(content) BETWEEN 1 AND 2000), spoiler BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS request_limits (
+  key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_titles_kind ON titles(kind,popularity DESC);
+CREATE INDEX IF NOT EXISTS idx_ratings_title ON ratings(title_id);
+CREATE INDEX IF NOT EXISTS idx_watched_title ON watched(title_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_title ON reviews(title_id,id DESC);
+CREATE INDEX IF NOT EXISTS idx_comments_title ON comments(title_id,id DESC);
+CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments(parent_id);
