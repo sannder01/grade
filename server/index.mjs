@@ -1,8 +1,9 @@
 import { createAuth } from './auth.mjs'
 import { createApp } from './app.mjs'
 import { migrate } from '../scripts/migrate.mjs'
-import { pool } from './db.mjs'
+import { pool, ensureSchema } from './db.mjs'
 
+await ensureSchema()
 await migrate(createAuth({ validateSchema: false }))
 const auth = createAuth()
 const port = Number(process.env.PORT || 3000)

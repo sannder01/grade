@@ -28,6 +28,7 @@ jobs:
       PORT: '3100'
       DATABASE_URL: postgresql://postgres:isolated_grade_ci@127.0.0.1:5432/grade_test
       DATABASE_SSL: 'false'
+      DATABASE_SCHEMA: grade_ci
       BETTER_AUTH_URL: http://127.0.0.1:3100
       BETTER_AUTH_SECRET: isolated-grade-ci-secret-only-not-for-production-2026
     steps:
@@ -35,9 +36,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm install --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
       - run: npm run check
       - run: npm test
+      - run: node scripts/setup-ci.mjs
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
       - name: Prepare visual review output

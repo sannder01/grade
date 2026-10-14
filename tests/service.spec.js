@@ -3,6 +3,17 @@ import { test, expect } from '@playwright/test'
 const baseURL='http://127.0.0.1:3100'
 const password='Isolated-Grade-Password-2026'
 const stamp=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6)
+test('Grade uses its own database schema and leaves another application intact',async()=>{
+  const {default:pg}=await import('pg')
+  const client=new pg.Client({connectionString:process.env.DATABASE_URL,ssl:false})
+  await client.connect()
+  try {
+    const other=await client.query('SELECT * FROM public."user"')
+    expect(other.rows).toEqual([{id:'other-app',marker:'untouched'}])
+    expect((await client.query("SELECT to_regclass('grade_ci.user') IS NOT NULL AS present")).rows[0].present).toBe(true)
+    expect((await client.query("SELECT to_regclass('public.titles') AS name")).rows[0].name).toBeNull()
+  }finally{await client.end()}
+})
 async function register(playwright, prefix='viewer') {
   const username=prefix+stamp()
   const api=await playwright.request.newContext({baseURL,extraHTTPHeaders:{Origin:baseURL}})
