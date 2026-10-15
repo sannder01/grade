@@ -224,6 +224,7 @@ curl 'http://localhost:3000/api/catalog?kind=anime&sort=rating&page=1'
 | `GET /api/catalog` | Искать в локальном каталоге |
 | `GET /api/catalog/external`, `POST /api/catalog/import` | Искать в TMDB и сохранить выбранный тайтл |
 | `GET /api/titles/:id`, `GET /api/titles/:id/external-ratings` | Данные тайтла и внешние оценки |
+| `GET /api/titles/:id/trailer` | Доступный YouTube-трейлер из TMDB |
 | `PUT /api/titles/:id/watched`, `PUT /api/titles/:id/planned` | Изменить коллекции; JSON `{"watched":true}` или `{"planned":true}` |
 | `PUT /api/titles/:id/rating`, `DELETE /api/titles/:id/rating` | Сохранить `{"score":8}` или удалить оценку |
 | `GET /api/profiles/:username` | Профиль с учётом прав посетителя |
@@ -275,7 +276,7 @@ curl 'http://localhost:3000/api/catalog?kind=anime&sort=rating&page=1'
 | `BETTER_AUTH_SECRET` | Случайный секрет авторизации, минимум 32 символа |
 | `TRUSTED_ORIGINS` | Дополнительные точные origin через запятую, без путей и wildcard |
 | `PORT` | Порт обычного сервера, по умолчанию `3000` |
-| `TMDB_READ_TOKEN` | Необязательно: внешний поиск, импорт и дополнительные метаданные |
+| `TMDB_READ_TOKEN` | Необязательно: внешний поиск, импорт, трейлеры и дополнительные метаданные |
 | `KINOPOISK_API_KEY` | Необязательно: рейтинги Кинопоиска / IMDb; также нужен `TMDB_READ_TOKEN` |
 
 На Vercel [origins.mjs](server/origins.mjs) дополнительно учитывает `VERCEL_URL`, `VERCEL_BRANCH_URL` и `VERCEL_PROJECT_PRODUCTION_URL`. Cookies остаются привязаны к адресу, на котором выполнен вход.
@@ -283,6 +284,8 @@ curl 'http://localhost:3000/api/catalog?kind=anime&sort=rating&page=1'
 ### Внешние данные
 
 **TMDB.** При подключённом токене поиск показывает и локальные, и внешние результаты, включая гостям. Импорт выбранного тайтла требует входа. Локальные результаты остаются доступны при сбое провайдера. Кэш внешнего поиска хранится в памяти экземпляра на 10 минут, до 100 записей; запросы поиска ограничены 30 в минуту на пользователя или IP.
+
+**Трейлеры.** Страница тайтла получает ролики из TMDB через `GET /api/titles/:id/trailer` и показывает доступный YouTube-трейлер в стеклянном плеере. Русский трейлер выбирается первым, затем английский. Видео начинает загружаться только после нажатия кнопки воспроизведения. Для этого нужен `TMDB_READ_TOKEN`; без него или при отсутствии трейлера блок скрыт. Плеер показывает только трейлеры, не полные фильмы и серии.
 
 **Кинопоиск / IMDb.** [ratings.mjs](server/ratings.mjs) получает IMDb ID из TMDB и ищет точное совпадение через Kinopoisk Unofficial API. Ответы сохраняются в PostgreSQL на 24 часа, параллельные запросы одного тайтла объединяются. При сбое может использоваться последнее сохранённое значение. Если нет совпадения или оценки, интерфейс показывает прочерк; рейтинг Grade остаётся отдельным.
 
