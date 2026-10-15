@@ -1,7 +1,7 @@
 import { api, esc, icon, avatar, poster, kindName, toast, openModal, closeModal, empty, cards, pager } from './ui.js'
 import { t, html, language, setLanguage, applyShell } from './i18n.js'
 import { preparePhoto } from './photo.js'
-import { mountMotion, enableGestures } from './motion.js'
+import { mountMotion, leavePage, syncNavigation, enableGestures } from './motion.js'
 
 const main = document.querySelector('#main')
 const state = { me: null, generation: 0, title: null, discussion: null, onboarding: null }
@@ -9,8 +9,7 @@ const params = () => new URLSearchParams(location.search)
 const urlFor = (values) => `/catalog?${new URLSearchParams(values)}`
 function navigate(url, replace = false) {
   history[replace ? 'replaceState' : 'pushState']({}, '', url)
-  render()
-  window.scrollTo({ top: 0, behavior: 'instant' })
+  render({ resetScroll:true })
 }
 async function refreshMe() {
   const data = await api('/api/me')
@@ -49,13 +48,23 @@ function authModal(mode = 'login') {
   }
 }
 
-async function render() {
+async function render({ resetScroll = false } = {}) {
   const generation = ++state.generation
   const path = location.pathname
   main.setAttribute('aria-busy','true')
   main.inert = true
-  const nav = path === '/' ? 'home' : path === '/catalog' || path.startsWith('/title/') ? 'catalog' : params().get('tab') || 'ratings'
-  document.querySelectorAll('[data-nav]').forEach((link) => { link.classList.toggle('active', link.dataset.nav === nav) })
+  main.setAttribute('aria-hidden','true')
+  const profile = path === '/me' || path.startsWith('/u/') || path === '/start'
+  const nav = path === '/' ? 'home' : path === '/catalog' || path.startsWith('/title/') ? 'catalog' : profile ? 'profile' : null
+  document.querySelectorAll('[data-nav],.account-link').forEach(link => {
+    const active = link.closest('.desktop-nav') && profile
+      ? link.dataset.nav === (params().get('tab') || 'ratings')
+      : link.classList.contains('account-link') ? profile && link.getAttribute('href') === path : link.dataset.nav === nav
+    link.classList.toggle('active',active)
+    if (active) link.setAttribute('aria-current','page')
+    else link.removeAttribute('aria-current')
+  })
+  syncNavigation()
   try {
     let content
     if (path === '/') content = await homePage()
@@ -64,13 +73,16 @@ async function render() {
     else if (path === '/me' || path.startsWith('/u/')) {
       if (path === '/me') {
         if (!state.me) content = loginRequired()
-        else { navigate(`/u/${encodeURIComponent(state.me.user.username)}${location.search}`, true); return }
+        else { history.replaceState({},'',`/u/${encodeURIComponent(state.me.user.username)}${location.search}`); return render({ resetScroll }) }
       } else content = await profilePage(decodeURIComponent(path.slice(3)))
     } else if (path === '/start') content = state.me ? await onboardingPage() : loginRequired()
     else if (path === '/about') content = aboutPage()
     else content = empty(t('Страница не найдена'), t('Вернитесь в каталог'))
     if (generation !== state.generation) return
+    await leavePage(main)
+    if (generation !== state.generation) return
     main.innerHTML = content
+    if (resetScroll) window.scrollTo({ top:0,behavior:'instant' })
     bindPage()
     mountMotion(main)
     document.title = path.startsWith('/title/') && state.title ? `${state.title.name} — Grade` : t('Grade — оценки аниме, фильмов и сериалов')
@@ -79,8 +91,10 @@ async function render() {
   } catch (error) {
     if (generation !== state.generation) return
     main.innerHTML = html`<section class="container error-page" role="alert"><h1>Не удалось открыть страницу</h1><p>${esc(error.message)}</p><button class="button primary" data-action="retry">Повторить</button></section>`
+    if (resetScroll) window.scrollTo({ top:0,behavior:'instant' })
+    mountMotion(main)
   } finally {
-    if (generation === state.generation) { main.inert = false; main.removeAttribute('aria-busy') }
+    if (generation === state.generation) { main.inert = false; main.removeAttribute('aria-busy'); main.removeAttribute('aria-hidden') }
   }
 }
 const loginRequired = () => html`<div class="container">${empty(t('Войдите в аккаунт'), t('Здесь будут ваши оценки и просмотренное'))}<div class="center-action"><button class="button primary" data-action="login">Войти</button></div></div>`

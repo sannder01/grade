@@ -8,7 +8,9 @@
   --muted:#939b8e;
   --accent:#d6ec89;
   --accent-dim:#2c3620;
-  --radius:16px;
+  --radius:24px;
+  --ease-out:cubic-bezier(.16,1,.3,1);
+  --glass:linear-gradient(135deg,#ffffff12,#ffffff03),#202320b8;
   font-family:'Manrope',sans-serif;
   font-synthesis:none
 }
@@ -149,11 +151,11 @@ img {
   justify-content:center;
   min-height:44px;
   padding:11px 18px;
-  border-radius:8px;
+  border-radius:999px;
   font-size:12px;
   font-weight:700;
   border:1px solid transparent;
-  transition:background .18s,transform .18s,border-color .18s;
+  transition:background .3s,border-color .3s,transform .5s var(--ease-out);
   white-space:nowrap
 }
 .button:hover {
@@ -2067,27 +2069,62 @@ img {
   }
   .mobile-nav {
     display:flex;
-    justify-content:space-around;
+    justify-content:center;
     align-items:center;
     position:fixed;
-    bottom:0;
-    left:0;
-    right:0;
+    bottom:calc(16px + env(safe-area-inset-bottom,0px));
+    left:50%;
+    right:auto;
+    transform:translateX(-50%);
     z-index:25;
-    height:calc(57px + env(safe-area-inset-bottom));
-    padding:0 7px env(safe-area-inset-bottom);
-    background:#171c16ee;
-    backdrop-filter:blur(16px);
-    border-top:1px solid var(--line);
-    font-size:10px;
-    color:#bac6ab
+    width:min(calc(100% - 32px),380px);
+    height:64px;
+    padding:6px;
+    isolation:isolate;
+    background:var(--glass);
+    -webkit-backdrop-filter:blur(24px) saturate(160%);
+    backdrop-filter:blur(24px) saturate(160%);
+    border:1px solid #ffffff29;
+    border-radius:999px;
+    box-shadow:0 12px 40px #0005,inset 0 1px 0 #ffffff21,inset 0 -1px 0 #ffffff08;
+    font-size:12px;
+    font-weight:600;
+    color:#c0c5bc
   }
   .mobile-nav a {
+    position:relative;
+    z-index:1;
     display:flex;
     align-items:center;
     justify-content:center;
-    padding:12px 8px
+    flex:1;
+    min-width:0;
+    min-height:50px;
+    padding:12px 8px;
+    border-radius:999px;
+    user-select:none;
+    -webkit-user-select:none
   }
+  .mobile-nav a.active { color:#fff; text-shadow:0 1px 12px #ffffff40 }
+  .mobile-nav a:focus-visible { outline-offset:-3px }
+  .nav-indicator {
+    position:absolute;
+    z-index:0;
+    left:0;
+    top:6px;
+    bottom:6px;
+    border-radius:999px;
+    border:1px solid #ffffff2e;
+    background:linear-gradient(135deg,#ffffff24,#ffffff0c);
+    box-shadow:inset 0 1px 0 #ffffff30,0 3px 14px #0002;
+    transform-origin:left center;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .25s
+  }
+  .mobile-nav[data-ready] .nav-indicator { opacity:1 }
+  body { padding-bottom:calc(100px + env(safe-area-inset-bottom,0px)) }
+  .toast { bottom:calc(96px + env(safe-area-inset-bottom,0px)) }
   .hero {
     margin-top:20px;
     min-height:365px
@@ -3066,25 +3103,32 @@ img {
   .source-rating strong { font-size:22px }
 }
 
-/* Short, consistent motion without layout shifts */
+/* Animate composited properties; glass blur stays static while controls move. */
 :where(button,.button,a,summary,input,select,textarea) {
-  transition:background-color .18s,color .18s,border-color .18s,box-shadow .18s,opacity .18s,transform .18s
+  transition:background-color .28s,color .28s,border-color .28s,box-shadow .28s,opacity .28s,transform .5s var(--ease-out)
 }
-:where(button,.button,.photo-select):active:not(:disabled) { transform:translateY(1px) scale(.975) }
-:where(.category-pills,.profile-tabs,.discussion-tabs,.mobile-nav) a:active { transform:scale(.96) }
-.poster-link img { transition:transform .4s cubic-bezier(.2,.7,.2,1) }
+button,.button,.mobile-nav a,.desktop-nav a { touch-action:pan-y pinch-zoom }
+[data-elastic] {
+  transition-property:background-color,color,border-color,box-shadow,opacity;
+  will-change:translate,scale,rotate;
+  user-select:none;
+  -webkit-user-select:none
+}
+.poster-link img { transition:transform .7s var(--ease-out) }
 .poster-link:active img { transform:scale(1.035) }
-.text-link .icon,.button .icon { transition:transform .2s }
+.text-link .icon,.button .icon { transition:transform .45s var(--ease-out) }
 @media(hover:hover) {
   .text-link:hover .icon,.button:hover .icon { transform:translateX(3px) }
   .title-card:hover .card-title { color:var(--accent) }
 }
 [data-reveal=pending] { opacity:0; transform:translateY(14px) }
-.modal[open]::backdrop { animation:backdrop-in .18s ease-out }
+.modal[open]::backdrop { animation:backdrop-in .35s ease-out }
+.modal[data-closing]::backdrop { animation:backdrop-out .2s ease-out forwards }
 @keyframes backdrop-in { from { opacity:0 } to { opacity:1 } }
-.watched-badge,.personal-score,.rating-scale .picked { animation:selection-in .22s ease-out }
-@keyframes selection-in { from { opacity:.6; scale:.94 } to { opacity:1; scale:1 } }
-.onboard-progress>span { transition:width .3s ease }
+@keyframes backdrop-out { to { opacity:0 } }
+.watched-badge,.personal-score,.rating-scale .picked { animation:selection-in .5s var(--ease-out) }
+@keyframes selection-in { 0% { opacity:0; scale:.8 } 65% { opacity:1; scale:1.05 } 100% { scale:1 } }
+.onboard-progress>span { transition:width .6s var(--ease-out) }
 .profile-tabs,.category-pills,.discussion-tabs { scroll-behavior:smooth; overscroll-behavior-x:contain }
 #main[aria-busy=true]::before {
   content:''; position:fixed; top:0; left:0; z-index:60; height:2px; width:100%;
@@ -3093,9 +3137,8 @@ img {
 @keyframes page-progress { from { scale:0 1; opacity:.4 } to { scale:.9 1; opacity:1 } }
 @media(prefers-reduced-motion:reduce) {
   [data-reveal=pending] { opacity:1; transform:none }
-  :where(button,.button,.photo-select):active:not(:disabled),:where(.category-pills,.profile-tabs,.discussion-tabs,.mobile-nav) a:active { transform:none }
   .profile-tabs,.category-pills,.discussion-tabs { scroll-behavior:auto }
-  .watched-badge,.personal-score,.rating-scale .picked,.modal[open]::backdrop,#main[aria-busy=true]::before { animation:none }
+  .watched-badge,.personal-score,.rating-scale .picked,.modal[open]::backdrop,.modal[data-closing]::backdrop,#main[aria-busy=true]::before { animation:none }
 }
 
 .card-actions { display:flex; align-items:stretch; gap:6px; margin-top:12px }
@@ -3107,6 +3150,49 @@ img {
 .title-plan { margin-top:10px }
 .profile-tabs { overflow-x:auto }
 .profile-tabs a { flex-shrink:0 }
+/* Rounded cinema surfaces with Grade's own accent and a soft warm spotlight. */
+body { background:radial-gradient(ellipse at 85% 0,#ff8c3609,transparent 55%),var(--bg) }
+.hero { border-radius:32px; box-shadow:0 24px 70px #0002 }
+.hero:before {
+  background:linear-gradient(90deg,#151915 0%,#151915e8 27%,#241c1674 65%,#39211520 100%),linear-gradient(0deg,#131713dc,transparent 55%)
+}
+.header { -webkit-backdrop-filter:blur(18px); backdrop-filter:blur(18px) }
+.header-search { border-radius:999px; padding-inline:14px; background:#ffffff06 }
+.button,.language-switch,.card-watch,.card-plan,.rating-scale>button { border-radius:999px }
+.button.primary { box-shadow:inset 0 1px 0 #ffffff40,0 5px 18px #d6ec8910 }
+.button.secondary { background:#ffffff07 }
+.poster-link,.poster-placeholder,.title-sidebar>.poster-placeholder,.onboard-poster>.poster-placeholder { border-radius:20px }
+.poster-link { transition:transform .6s var(--ease-out),box-shadow .6s var(--ease-out) }
+.poster-kind,.watched-badge,.personal-score,.genre-tags>span { border-radius:999px }
+.rating-section,.onboard-card,.onboarding-banner,.comment-form,.external-item,.spoiler-placeholder { border-radius:var(--radius) }
+.rating-section,.onboard-card,.comment-form { background:linear-gradient(145deg,#ffffff04,transparent),var(--surface) }
+.modal { border-radius:30px; border-color:#ffffff22; background:linear-gradient(145deg,#ffffff08,transparent),#1a1e18 }
+.modal::backdrop { -webkit-backdrop-filter:blur(5px) }
+.stack-form input:not([type=checkbox]),.stack-form textarea,.settings-section select { border-radius:14px }
+.toast { border-radius:999px }
+.category-pills>a { border-radius:999px }
+.profile-tabs,.discussion-tabs { gap:6px; border-bottom:0; padding:5px; background:#ffffff04; border-radius:22px }
+.profile-tabs>a,.discussion-tabs>a { padding:11px 16px; border:0; border-radius:17px; white-space:nowrap }
+.profile-tabs>a.active,.discussion-tabs>a.active { background:#ffffff0d; box-shadow:inset 0 1px 0 #ffffff0d; color:var(--accent) }
+.profile-tabs>a>span { border-radius:999px }
+.discussion-toolbar { border-bottom:0 }
+.profile-stats { padding:24px; border:1px solid #ffffff0c; border-radius:var(--radius); background:linear-gradient(120deg,#ffffff05,transparent) }
+@media(hover:hover) and (prefers-reduced-motion:no-preference) {
+  .poster-link:hover { transform:translateY(-5px); box-shadow:0 16px 32px #0004 }
+  .mobile-nav a:hover { color:#fff }
+}
+@media(max-width:760px) {
+  .hero { border-radius:26px }
+  .toast { bottom:calc(96px + env(safe-area-inset-bottom,0px)) }
+  .profile-tabs,.discussion-tabs { gap:4px }
+  .profile-tabs>a,.discussion-tabs>a { padding:10px 13px }
+}
+@media(max-width:560px) {
+  .poster-link,.poster-placeholder { border-radius:16px }
+  .profile-stats { gap:20px; padding:18px 14px }
+  .profile-tabs { border-radius:20px }
+  .profile-tabs>a { padding:10px 12px; font-size:11px }
+}
 @media(max-width:950px) and (min-width:761px) {
   .header-inner { gap:14px }
   .desktop-nav { gap:11px; font-size:10px }

@@ -247,7 +247,7 @@ test('English, profile preferences, password changes and mobile sign out work to
     await expect(page.locator('.card-title').first()).toHaveText('Interstellar')
     await page.reload()
     await expect(page.locator('html')).toHaveAttribute('lang','en')
-    await expect(page.locator('.mobile-nav')).toContainText('Watched')
+    await expect(page.locator('.mobile-nav')).toContainText('Profile')
     await page.locator('.account-link').click()
     await expect(page.locator('.profile-actions [data-action=signout]')).toBeVisible()
     await page.locator('.profile-actions [data-action=edit-profile]').click()

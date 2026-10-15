@@ -35,33 +35,42 @@ export async function api(url, { method = 'GET', body, signal, raw = false } = {
   }
   return data
 }
-let toastTimer
+let toastTimer, toastAnimation
 export function toast(message) {
   const element = document.querySelector('#toast')
   element.textContent = t(message)
   element.hidden = false
-  motion(element,[{ opacity:0,translate:'0 8px' },{ opacity:1,translate:'0 0' }])
+  toastAnimation?.cancel()
+  toastAnimation = motion(element,[{ opacity:0,translate:'0 14px',scale:'.94' },{ opacity:1,translate:'0 0',scale:'1' }],{ duration:500 })
   clearTimeout(toastTimer)
-  toastTimer = setTimeout(() => { element.hidden = true }, 4000)
+  toastTimer = setTimeout(async () => {
+    const animation = toastAnimation = motion(element,[{ opacity:1,translate:'0 0' },{ opacity:0,translate:'0 8px' }],{ duration:200 })
+    await animation?.finished.catch(() => {})
+    if (toastAnimation === animation) element.hidden = true
+  },4000)
 }
-let closingModal
+let closingModal, openingModal
 export function openModal(content) {
   closingModal?.cancel(); closingModal = null
   const modal = document.querySelector('#modal')
+  modal.removeAttribute('data-closing')
+  openingModal?.cancel()
   document.querySelector('#modal-content').innerHTML = content
   if (!modal.open) modal.showModal()
-  motion(document.querySelector('.modal-inner'),[{ opacity:0,translate:'0 12px',scale:'.985' },{ opacity:1,translate:'0 0',scale:'1' }])
+  openingModal = motion(modal,[{ opacity:0,translate:'0 24px',scale:'.96' },{ opacity:1,translate:'0 -2px',scale:'1.003',offset:.75 },{ opacity:1,translate:'0 0',scale:'1' }],{ duration:520 })
   return modal
 }
 export function closeModal() {
   const modal = document.querySelector('#modal')
   if (!modal.open || closingModal) return
+  openingModal?.cancel()
   if (reducedMotion()) { modal.close(); return }
-  const animation = motion(modal,[{ opacity:1,translate:'0 0' },{ opacity:0,translate:'0 6px' }],{ duration:120 })
+  modal.dataset.closing = 'true'
+  const animation = motion(modal,[{ opacity:1,translate:'0 0',scale:'1' },{ opacity:0,translate:'0 14px',scale:'.98' }],{ duration:200,easing:'ease-out' })
   if (!animation) { modal.close(); return }
   closingModal = animation
   animation.finished.then(() => {
-    if (closingModal === animation) { closingModal = null; modal.close() }
+    if (closingModal === animation) { closingModal = null; modal.close(); modal.removeAttribute('data-closing') }
   }).catch(() => {})
 }
 export function empty(title, description, link = '/catalog', label = t('Каталог')) {
