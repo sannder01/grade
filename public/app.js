@@ -1,5 +1,6 @@
 import { api, esc, icon, avatar, poster, kindName, toast, openModal, closeModal, empty, cards, pager } from './ui.js'
 import { t, html, language, setLanguage, applyShell } from './i18n.js'
+import { preparePhoto } from './photo.js'
 
 const main = document.querySelector('#main')
 const state = { me: null, generation: 0, title: null, discussion: null, onboarding: null }
@@ -14,7 +15,7 @@ async function refreshMe() {
   const data = await api('/api/me')
   state.me = data.user ? data : null
   document.querySelector('#account').innerHTML = state.me
-    ? html`<a class="account-link" href="/u/${encodeURIComponent(data.user.username)}" aria-label="Мой профиль">${avatar(data.user.name, data.avatar_color)}<span>${esc(data.user.username)}</span></a><button class="text-button signout" data-action="signout" type="button">Выйти</button>`
+    ? html`<a class="account-link" href="/u/${encodeURIComponent(data.user.username)}" aria-label="Мой профиль">${avatar(data.user.name, data.avatar_color, data.avatar_url)}<span>${esc(data.user.username)}</span></a><button class="text-button signout" data-action="signout" type="button">Выйти</button>`
     : t('<button class="button secondary login-button" data-action="login" type="button">Войти <span>↗</span></button>')
 }
 function needUser() { if (state.me) return true; authModal(); return false }
@@ -110,14 +111,24 @@ async function catalogPage() {
 }
 
 async function profilePage(username) {
-  const p = params(), data = await api(`/api/profiles/${encodeURIComponent(username)}?${new URLSearchParams({ tab:p.get('tab') || 'ratings',page:p.get('page') || '1' })}`)
-  const { user, stats, own, tab } = data
-  return html`<div class="container page profile-page"><header class="profile-heading"><div class="profile-avatar">${avatar(user.name, user.avatar_color)}</div><div class="profile-identity"><h1>${esc(user.name)}</h1><span class="profile-handle">@${esc(user.username)}</span>${user.bio ? `<p class="profile-bio">${esc(user.bio)}</p>` : ''}</div>${own ? '<div class="profile-actions"><button class="button secondary" data-action="edit-profile">'+icon('settings')+t(' Редактировать</button><button class="text-button" data-action="signout">Выйти</button></div>') : ''}</header>
-    <div class="profile-stats"><div><strong>${stats.watched}</strong><span>просмотрено</span></div><div><strong>${stats.rated}</strong><span>оценок</span></div><div><strong>${stats.average ?? '—'}</strong><span>средняя оценка</span></div><div><strong>${stats.reviews}</strong><span>отзывов</span></div></div>
-    <div class="profile-tabs" role="navigation" aria-label="Коллекции профиля">${[['ratings',t('Оценки'),stats.rated],['watched',t('Смотрел'),stats.watched],['reviews',t('Отзывы'),stats.reviews]].map(([value,label,count]) => `<a class="${tab === value ? 'active' : ''}" href="/u/${encodeURIComponent(user.username)}?tab=${value}">${label}<span>${count}</span></a>`).join('')}</div>
+  const p = params(), data = await api(`/api/profiles/${encodeURIComponent(username)}?${new URLSearchParams({ tab:p.get('tab') || '',page:p.get('page') || '1' })}`)
+  const { user, stats, own, tab, visibility, hidden } = data
+  const tabs = [['ratings',t('Оценки'),stats.rated],['watched',t('Смотрел'),stats.watched],['reviews',t('Отзывы'),stats.reviews],['comments',t('Комментарии'),stats.comments]]
+  const postTab = ['reviews','comments'].includes(tab)
+  const list = hidden ? empty(t('Раздел скрыт'),t('Пользователь скрыл этот раздел'))
+    : data.items.length ? postTab ? profilePosts(data.items,tab) : cards(data.items,own)
+    : empty(tab === 'ratings' ? t('Нет оценок') : tab === 'watched' ? t('Пока пусто') : tab === 'comments' ? t('Нет комментариев') : t('Нет отзывов'),
+      own ? tab === 'watched' ? t('Отметьте, что уже смотрели') : tab === 'ratings' ? t('Выберите тайтл в каталоге') : t('Перейдите к обсуждению тайтла') : '',
+      tab === 'watched' && own ? '/start' : '/catalog',tab === 'watched' && own ? t('Добавить') : t('Каталог'))
+  return html`<div class="container page profile-page"><header class="profile-heading"><div class="profile-avatar">${avatar(user.name,user.avatar_color,user.avatar_url)}</div><div class="profile-identity"><h1>${esc(user.name)}</h1><span class="profile-handle">@${esc(user.username)}</span>${user.bio ? `<p class="profile-bio">${esc(user.bio)}</p>` : ''}</div>${own ? html`<div class="profile-actions"><button class="button secondary" data-action="edit-profile">${icon('settings')} Редактировать</button><button class="text-button" data-action="signout">Выйти</button></div>` : ''}</header>
+    <div class="profile-stats"><div><strong>${stats.watched ?? '—'}</strong><span>просмотрено</span></div><div><strong>${stats.rated ?? '—'}</strong><span>оценок</span></div><div><strong>${stats.average ?? '—'}</strong><span>средняя оценка</span></div><div><strong>${stats.reviews ?? '—'}</strong><span>отзывов</span></div></div>
+    <div class="profile-tabs" role="navigation" aria-label="Коллекции профиля">${tabs.filter(([value]) => own || visibility[value]).map(([value,label,count]) => `<a class="${tab === value ? 'active' : ''}" href="/u/${encodeURIComponent(user.username)}?tab=${value}">${label}<span>${count ?? ''}</span>${own && !visibility[value] ? icon('eye') : ''}</a>`).join('')}</div>
+    ${own && !visibility[tab] ? html`<p class="collection-hint">Только вы видите этот раздел</p>` : ''}
     ${tab === 'watched' && own ? t('<p class="collection-hint">Оценку можно добавить позже</p>') : ''}
-    ${data.items.length ? tab === 'reviews' ? `<div class="profile-reviews">${data.items.map((item) => html`<article class="profile-review"><a href="/title/${item.id}">${poster(item)}</a><div><a class="review-title" href="/title/${item.id}">${esc(item.name)}</a><span class="review-date">${item.year} · ${kindName(item.kind)}${item.my_score ? html` · Моя оценка: ${item.my_score}/10` : ''}</span>${item.spoiler ? spoilerPlaceholder(item.review_id,'reviews') : `<p class="user-content">${esc(item.content)}</p>`}<a href="/title/${item.id}" class="text-link">К обсуждению ${icon('arrow')}</a></div></article>`).join('')}</div>` : cards(data.items,own) : empty(tab === 'ratings' ? t('Нет оценок') : tab === 'watched' ? t('Пока пусто') : t('Нет отзывов'), own ? tab === 'watched' ? t('Отметьте, что уже смотрели') : tab === 'ratings' ? t('Выберите тайтл в каталоге') : t('Напишите отзыв на странице тайтла') : '', tab === 'watched' && own ? '/start' : '/catalog', tab === 'watched' && own ? t('Добавить') : t('Каталог'))}
-    ${pager(data.page,data.pages,(page) => `/u/${encodeURIComponent(user.username)}?${new URLSearchParams({tab,page})}`)}</div>`
+    ${list}${pager(data.page,data.pages,page => `/u/${encodeURIComponent(user.username)}?${new URLSearchParams({tab,page})}`)}</div>`
+}
+function profilePosts(items,type) {
+  return `<div class="profile-reviews">${items.map(item => html`<article class="profile-review"><a href="/title/${item.id}">${poster(item)}</a><div><a class="review-title" href="/title/${item.id}">${esc(item.name)}</a><span class="review-date">${item.year} · ${kindName(item.kind)}${item.my_score ? html` · Моя оценка: ${item.my_score}/10` : ''}</span>${item.spoiler ? spoilerPlaceholder(item.post_id,type) : `<p class="user-content">${esc(item.content)}</p>`}<a href="/title/${item.id}?type=${type}" class="text-link">К обсуждению ${icon('arrow')}</a></div></article>`).join('')}</div>`
 }
 function spoilerPlaceholder(id, type) {
   return html`<div class="spoiler-placeholder" data-spoiler="${type}-${id}">${icon('eye')}<span>Спойлер</span><button class="text-button" data-action="reveal" data-type="${type}" data-id="${id}">Показать</button></div>`
@@ -134,7 +145,7 @@ async function onboardingPage() {
 }
 
 function aboutPage() {
-  return html`<div class="container page about-page"><h1>О Grade</h1><p>Оценки, отзывы и просмотренное для аниме, фильмов и сериалов. Списки «Смотрел» и «Оценки» независимы.</p><h2>Каталог</h2><p>На главной — подборка известных тайтлов. Поиск также использует TMDB. Рейтинг Grade складывается из оценок пользователей.</p><p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p><h2>Спойлеры</h2><p>Отметьте спойлер перед публикацией. Текст раскроется только по кнопке «Показать». Фильтр «Без спойлеров» убирает такие записи и ответы на них.</p><h2>Профиль</h2><p>Оценки, просмотренное и отзывы видны всем. Почта остаётся скрытой.</p><a class="button primary" href="/catalog">Каталог ${icon('arrow')}</a></div>`
+  return html`<div class="container page about-page"><h1>О Grade</h1><p>Оценки, отзывы и просмотренное для аниме, фильмов и сериалов — списки независимы</p><h2>Каталог</h2><p>На главной — подборка известных тайтлов. Поиск также использует TMDB. Рейтинг Grade складывается из оценок пользователей.</p><p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p><h2>Спойлеры</h2><p>Отметьте спойлер перед публикацией. Текст раскроется только по кнопке «Показать». Фильтр «Без спойлеров» убирает такие записи и ответы на них.</p><h2>Профиль</h2><p>Видимость коллекций настраивается в профиле — публикации в обсуждениях остаются публичными</p><p>Внешние рейтинги — <a href="https://kinopoiskapiunofficial.tech/" target="_blank" rel="noopener noreferrer">Kinopoisk Unofficial API</a></p><a class="button primary" href="/catalog">Каталог ${icon('arrow')}</a></div>`
 }
 
 function savedSpoilerFilter() {
@@ -150,7 +161,7 @@ async function titlePage(titleId) {
   if (location.pathname === `/title/${titleId}`) state.title = item
   return html`<div class="container title-page"><a href="/catalog" class="back-link">← В каталог</a><div class="title-layout"><aside class="title-sidebar"><div class="detail-poster">${poster(item,false)}</div><button class="button ${item.watched ? 'selected' : 'primary'} full" data-action="watch" data-id="${item.id}" data-watched="${item.watched ? 'true' : 'false'}">${icon(item.watched ? 'check' : 'plus')} ${item.watched ? t('Уже в просмотренном') : t('Смотрел')}</button><p class="small muted center">Без оценки</p></aside>
     <div class="title-info"><div class="title-kicker"><span class="kind-label">${kindName(item.kind)}</span><span>${item.year || ''}</span><span>${esc(item.runtime)}</span></div><h1>${esc(item.name)}</h1><p class="original-name">${esc(item.original_name)}</p><div class="genre-tags">${item.genres.map((genre) => `<a href="/catalog?q=${encodeURIComponent(genre)}">${esc(genre)}</a>`).join('')}</div>
-    <div class="title-overview"><div class="overall-score"><strong>${item.average ?? '—'}</strong><div>${icon('star')}<span>${item.votes ? html`${item.votes} оценок Grade` : t('Пока нет оценок')}</span></div></div></div>
+    <div class="title-overview"><div class="overall-score"><strong>${item.average ?? '—'}</strong><div>${icon('star')}<span>${item.votes ? html`${item.votes} оценок Grade` : t('Пока нет оценок')}</span></div></div><div id="external-ratings" data-id="${item.id}" aria-label="Рейтинги других сервисов">${ratingSources(null)}</div></div>
     <p class="title-description">${esc(item.description || t('Описание пока не добавлено.'))}</p><section class="rating-section"><div><h2>Ваша оценка</h2><span>${item.my_score ? html`${item.my_score} из 10` : t('Без оценки')}</span></div><div class="rating-scale" role="group" aria-label="Оценка от 1 до 10">${Array.from({length:10},(_,i) => html`<button type="button" aria-label="Оценить на ${i+1}" aria-pressed="${item.my_score === i+1}" data-action="rate" data-id="${item.id}" data-score="${i+1}" class="${item.my_score === i+1 ? 'picked' : ''}">${i+1}</button>`).join('')}</div>${item.my_score ? html`<button class="text-button remove-rating" data-action="remove-rating" data-id="${item.id}">Удалить мою оценку</button>` : ''}</section>
     <section class="discussion"><div class="discussion-header"><h2>Обсуждение</h2><button class="button secondary" data-action="review" data-id="${item.id}">${icon('plus')} Написать отзыв</button></div>
     <div class="discussion-toolbar"><nav class="discussion-tabs" aria-label="Тип обсуждения"><a class="${type === 'reviews' ? 'active' : ''}" href="/title/${item.id}?type=reviews&filter=${filter}">Отзывы</a><a class="${type === 'comments' ? 'active' : ''}" href="/title/${item.id}?type=comments&filter=${filter}">Комментарии</a></nav><label class="spoiler-filter">${icon('eye')}<select id="spoiler-filter" aria-label="Фильтр спойлеров"><option value="all" ${filter === 'all' ? 'selected' : ''}>Спойлеры скрыты</option><option value="clean" ${filter === 'clean' ? 'selected' : ''}>Без спойлеров</option></select></label></div>
@@ -160,13 +171,17 @@ async function titlePage(titleId) {
 }
 function discussionItem(row, type) {
   const date = new Intl.DateTimeFormat(language() === 'en' ? 'en-US' : 'ru-RU',{day:'numeric',month:'short',year:'numeric'}).format(new Date(row.created_at)).replace(/\.(?=\s|$)/g,'')
-  return `<article class="discussion-item ${row.parent_id ? 'is-reply' : ''}"><div class="discussion-author"><a href="/u/${encodeURIComponent(row.username)}">${avatar(row.name, row.avatar_color)}</a><div><a href="/u/${encodeURIComponent(row.username)}">${esc(row.name)}</a><span>@${esc(row.username)} · ${date}</span></div>${row.user_score ? `<span class="author-score">${icon('star')} ${row.user_score}</span>` : ''}</div>
+  return `<article class="discussion-item ${row.parent_id ? 'is-reply' : ''}"><div class="discussion-author"><a href="/u/${encodeURIComponent(row.username)}">${avatar(row.name, row.avatar_color, row.avatar_url)}</a><div><a href="/u/${encodeURIComponent(row.username)}">${esc(row.name)}</a><span>@${esc(row.username)} · ${date}</span></div>${row.user_score ? `<span class="author-score">${icon('star')} ${row.user_score}</span>` : ''}</div>
     ${row.reply_to ? html`<p class="reply-to">↳ В ответ ${esc(row.reply_to)}</p>` : ''}
     ${row.spoiler ? spoilerPlaceholder(row.id,type) : `<p class="user-content">${esc(row.content)}</p>`}
     <div class="discussion-item-actions">${type === 'comments' && !row.parent_id ? html`<button class="text-button" data-action="reply" data-id="${row.id}" data-name="${esc(row.name)}" data-spoiler="${row.spoiler}">Ответить</button>` : ''}${row.own ? html`${type === 'reviews' ? html`<button class="text-button" data-action="review" data-id="${row.title_id}">Редактировать</button>` : ''}<button class="text-button muted" data-action="delete-post" data-id="${row.id}" data-type="${type}">Удалить</button>` : ''}</div></article>`
 }
 
 function bindPage() {
+  const sources = document.querySelector('#external-ratings')
+  if (sources) api(`/api/titles/${sources.dataset.id}/external-ratings`).then(data => {
+    if (sources.isConnected) sources.innerHTML = ratingSources(data)
+  }).catch(() => { if (sources.isConnected) sources.innerHTML = ratingSources({ status:'unavailable' }) })
   const sort = document.querySelector('#catalog-sort')
   if (sort) sort.onchange = () => { const p = params(); p.set('sort',sort.value); p.delete('page'); navigate(`/catalog?${p}`) }
   const filter = document.querySelector('#spoiler-filter')
@@ -188,6 +203,10 @@ function bindPage() {
     finally { button.disabled = false }
   }
 }
+function ratingSources(data) {
+  const items = [[t('Кинопоиск'),data?.kinopoisk],['IMDb',data?.imdb]]
+  return `<div class="source-ratings">${items.map(([name,row]) => row ? `<a class="source-rating" href="${esc(row.url)}" target="_blank" rel="noopener noreferrer"><strong>${Number(row.score).toFixed(1)}</strong><span>${name} ↗</span></a>` : `<div class="source-rating"><strong>—</strong><span>${name}</span></div>`).join('')}</div>${data?.status !== 'ok' ? `<small class="source-status">${!data ? t('Загрузка рейтингов') : data.status === 'not_found' ? t('Нет данных') : t('Рейтинги пока недоступны')}</small>` : ''}`
+}
 async function reviewModal(titleId) {
   if (!needUser()) return
   const own = await api(`/api/titles/${titleId}/my-review`)
@@ -205,9 +224,60 @@ async function reviewModal(titleId) {
 }
 function editProfile() {
   if (!needUser()) return
-  openModal(html`<h2>Настройки</h2><form id="profile-form" class="stack-form settings-section"><h3>Профиль</h3><label>Имя<input name="name" required minlength="2" maxlength="40" value="${esc(state.me.user.name)}"></label><label>О себе<textarea name="bio" rows="3" maxlength="400" placeholder="Любимые жанры и режиссёры">${esc(state.me.bio)}</textarea></label><fieldset class="avatar-picker"><legend>Цвет аватара</legend><div>${[['lime',t('Лайм')],['violet',t('Фиолетовый')],['blue',t('Синий')],['orange',t('Оранжевый')],['pink',t('Розовый')],['gray',t('Серый')]].map(([color,label]) => `<label class="color-choice" data-color="${color}"><input type="radio" name="avatar_color" value="${color}" aria-label="${label}" ${(state.me.avatar_color || 'lime') === color ? 'checked' : ''}><span>${avatar(state.me.user.name,color)}</span></label>`).join('')}</div></fieldset><p class="form-error" role="alert" hidden></p><button class="button primary" type="submit">Сохранить ${icon('check')}</button></form>
-    <form id="preferences-form" class="stack-form settings-section"><h3>Предпочтения</h3><label>Язык<select name="language"><option value="ru" ${language() === 'ru' ? 'selected' : ''}>Русский</option><option value="en" ${language() === 'en' ? 'selected' : ''}>English</option></select></label><label>Спойлеры<select name="spoilers"><option value="all" ${savedSpoilerFilter() === 'all' ? 'selected' : ''}>Спойлеры скрыты</option><option value="clean" ${savedSpoilerFilter() === 'clean' ? 'selected' : ''}>Без спойлеров</option></select></label><button class="button secondary" type="submit">Применить</button></form>
+  openModal(html`<h2>Настройки</h2><form id="photo-form" class="stack-form settings-section"><h3>Фото профиля</h3><div class="photo-controls"><div id="photo-preview" class="photo-preview">${avatar(state.me.user.name,state.me.avatar_color,state.me.avatar_url)}</div><div class="photo-buttons"><label class="button secondary photo-select">Выбрать из галереи<input id="profile-photo" type="file" accept="image/*" class="sr-only"></label><button id="remove-photo" class="text-button" type="button" ${state.me.avatar_url ? '' : 'disabled'}>Удалить фото</button></div></div><small>Квадратное фото с обрезкой по центру</small><p class="form-error" role="alert" hidden></p><button id="save-photo" class="button primary" type="submit" disabled>Сохранить фото</button></form>
+<form id="profile-form" class="stack-form settings-section"><h3>Профиль</h3><label>Имя<input name="name" required minlength="2" maxlength="40" value="${esc(state.me.user.name)}"></label><label>О себе<textarea name="bio" rows="3" maxlength="400" placeholder="Любимые жанры и режиссёры">${esc(state.me.bio)}</textarea></label><fieldset class="avatar-picker"><legend>Цвет аватара</legend><div>${[['lime',t('Лайм')],['violet',t('Фиолетовый')],['blue',t('Синий')],['orange',t('Оранжевый')],['pink',t('Розовый')],['gray',t('Серый')]].map(([color,label]) => `<label class="color-choice" data-color="${color}"><input type="radio" name="avatar_color" value="${color}" aria-label="${label}" ${(state.me.avatar_color || 'lime') === color ? 'checked' : ''}><span>${avatar(state.me.user.name,color)}</span></label>`).join('')}</div></fieldset><p class="form-error" role="alert" hidden></p><button class="button primary" type="submit">Сохранить ${icon('check')}</button></form>
+    <form id="privacy-form" class="stack-form settings-section"><h3>Видимость профиля</h3><p class="settings-hint">Показывать посетителям профиля</p><div class="privacy-options">${[['watched',t('Просмотренное')],['ratings',t('Оценки')],['reviews',t('Отзывы')],['comments',t('Комментарии')]].map(([key,label]) => `<label class="checkbox-label"><input type="checkbox" name="${key}" ${state.me.visibility[key] ? 'checked' : ''}>${label}</label>`).join('')}</div><small>Только в профиле — публикации в обсуждениях остаются видны</small><p class="form-error" role="alert" hidden></p><button class="button secondary" type="submit">Сохранить видимость</button></form>
+<form id="preferences-form" class="stack-form settings-section"><h3>Предпочтения</h3><label>Язык<select name="language"><option value="ru" ${language() === 'ru' ? 'selected' : ''}>Русский</option><option value="en" ${language() === 'en' ? 'selected' : ''}>English</option></select></label><label>Спойлеры<select name="spoilers"><option value="all" ${savedSpoilerFilter() === 'all' ? 'selected' : ''}>Спойлеры скрыты</option><option value="clean" ${savedSpoilerFilter() === 'clean' ? 'selected' : ''}>Без спойлеров</option></select></label><button class="button secondary" type="submit">Применить</button></form>
     <details class="settings-section password-settings"><summary>Сменить пароль</summary><form id="password-form" class="stack-form"><label>Текущий пароль<input name="currentPassword" type="password" required maxlength="128" autocomplete="current-password"></label><label>Новый пароль<input name="newPassword" type="password" required minlength="10" maxlength="128" autocomplete="new-password" placeholder="Не менее 10 символов"></label><small>Другие сеансы будут завершены</small><p class="form-error" role="alert" hidden></p><button class="button secondary" type="submit">Обновить пароль</button></form></details><button class="text-button settings-signout" data-action="signout" type="button">Выйти из аккаунта</button>`)
+  const photoForm = document.querySelector('#photo-form'), photoInput = document.querySelector('#profile-photo')
+  const preview = document.querySelector('#photo-preview'), savePhoto = document.querySelector('#save-photo'), removePhoto = document.querySelector('#remove-photo')
+  const photoError = photoForm.querySelector('.form-error')
+  let selectedPhoto = null, selection = 0
+  photoInput.onchange = async () => {
+    const current = ++selection
+    selectedPhoto = null; savePhoto.disabled = true; photoError.hidden = true
+    try {
+      if (!photoInput.files[0]) return
+      const prepared = await preparePhoto(photoInput.files[0])
+      if (current !== selection) return
+      selectedPhoto = prepared.blob
+      const image = document.createElement('img'); image.src = prepared.preview; image.alt = t('Предпросмотр фото')
+      preview.replaceChildren(image); savePhoto.disabled = false
+    } catch (error) { photoError.textContent = error.message; photoError.hidden = false }
+  }
+  photoForm.onsubmit = async event => {
+    event.preventDefault()
+    if (!selectedPhoto) return
+    savePhoto.disabled = true; photoInput.disabled = true; removePhoto.disabled = true; photoError.hidden = true
+    try {
+      await api('/api/me/avatar',{ method:'PUT',raw:true,body:selectedPhoto })
+      await refreshMe(); selectedPhoto = null; photoInput.value = ''
+      preview.innerHTML = avatar(state.me.user.name,state.me.avatar_color,state.me.avatar_url)
+      toast(t('Фото обновлено')); render()
+    } catch (error) { photoError.textContent = error.message; photoError.hidden = false }
+    finally { photoInput.disabled = false; savePhoto.disabled = !selectedPhoto; removePhoto.disabled = !state.me.avatar_url }
+  }
+  removePhoto.onclick = async () => {
+    removePhoto.disabled = true; photoInput.disabled = true; savePhoto.disabled = true; photoError.hidden = true; selection++
+    try {
+      await api('/api/me/avatar',{method:'DELETE'})
+      await refreshMe(); selectedPhoto = null; photoInput.value = ''
+      preview.innerHTML = avatar(state.me.user.name,state.me.avatar_color)
+      toast(t('Фото удалено')); render()
+    } catch (error) { photoError.textContent = error.message; photoError.hidden = false }
+    finally { photoInput.disabled = false; removePhoto.disabled = !state.me.avatar_url; savePhoto.disabled = !selectedPhoto }
+  }
+  document.querySelector('#privacy-form').onsubmit = async event => {
+    event.preventDefault()
+    const form = event.currentTarget, button = form.querySelector('[type=submit]'), error = form.querySelector('.form-error')
+    button.disabled = true; error.hidden = true
+    try {
+      const body = Object.fromEntries(['watched','ratings','reviews','comments'].map(key => [key,form.elements[key].checked]))
+      await api('/api/me/privacy',{method:'PATCH',body})
+      await refreshMe(); closeModal(); toast(t('Видимость обновлена')); render()
+    } catch (err) { error.textContent = err.message; error.hidden = false }
+    finally { button.disabled = false }
+  }
   document.querySelector('#profile-form').onsubmit = async (event) => {
     event.preventDefault()
     const form = event.currentTarget, button = form.querySelector('[type=submit]'), error = form.querySelector('.form-error')

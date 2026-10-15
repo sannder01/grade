@@ -14,9 +14,9 @@ test('Grade uses its own database schema and leaves another application intact',
     expect((await client.query("SELECT to_regclass('public.titles') AS name")).rows[0].name).toBeNull()
   }finally{await client.end()}
 })
-async function register(playwright, prefix='viewer') {
+async function register(playwright, prefix='viewer', clientIp=null) {
   const username=prefix+stamp()
-  const api=await playwright.request.newContext({baseURL,extraHTTPHeaders:{Origin:baseURL}})
+  const api=await playwright.request.newContext({baseURL,extraHTTPHeaders:{Origin:baseURL,...(clientIp?{'X-Forwarded-For':clientIp}:{})}})
   const response=await api.post('/api/auth/sign-up/email',{data:{name:'Зритель '+prefix,email:username+'@example.test',password,username}})
   expect(response.status(),await response.text()).toBe(200)
   const me=await (await api.get('/api/me')).json()
@@ -299,4 +299,119 @@ test('English, profile preferences, password changes and mobile sign out work to
     expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(391)
     expect(errors).toEqual([])
   } finally { await other.dispose();await context.close() }
+})
+
+test('profile privacy protects lists, counts and cross-collection metadata while keeping discussions public',async({playwright,browser,request})=>{
+  const a=await register(playwright,'private','198.51.100.26'),b=await register(playwright,'guest','198.51.100.27')
+  const title=(await call(a.api,'/api/catalog')).items[4].id
+  const visibility={watched:false,ratings:false,reviews:false,comments:false}
+  let context
+  try{
+    await call(a.api,`/api/titles/${title}/watched`,'PUT',{watched:true})
+    await call(a.api,`/api/titles/${title}/rating`,'PUT',{score:8})
+    const review=await call(a.api,`/api/titles/${title}/review`,'PUT',{content:'A thoughtful review that stays public in discussions',spoiler:false})
+    const comment=await call(a.api,`/api/titles/${title}/comments`,'POST',{content:'Private-profile comment still lives on the title page',spoiler:false},201)
+    await call(a.api,'/api/me/privacy','PATCH',visibility)
+    expect((await call(a.api,'/api/me')).visibility).toEqual(visibility)
+    for(const tab of ['ratings','watched','reviews','comments']){
+      for(const visitor of [b.api,request]){
+        const profile=await call(visitor,`/api/profiles/${a.username}?tab=${tab}`)
+        expect(profile.hidden).toBe(true);expect(profile.items).toEqual([]);expect(profile.pages).toBe(0)
+        expect(profile.stats).toEqual({rated:null,watched:null,reviews:null,comments:null,average:null})
+      }
+      const own=await call(a.api,`/api/profiles/${a.username}?tab=${tab}`)
+      expect(own.hidden).toBe(false);expect(own.items).toHaveLength(1)
+    }
+    expect((await call(b.api,`/api/titles/${title}/discussion?type=comments`)).items.some(row=>row.id===comment.id)).toBe(true)
+    expect((await call(b.api,`/api/titles/${title}/discussion?type=reviews`)).items.some(row=>row.id===review.id)).toBe(true)
+    await call(a.api,'/api/me/privacy','PATCH',{...visibility,watched:true,reviews:true})
+    const watched=await call(b.api,`/api/profiles/${a.username}?tab=watched`)
+    expect(watched.items[0].my_score).toBeNull();expect(watched.stats.average).toBeNull()
+    const reviews=await call(b.api,`/api/profiles/${a.username}?tab=reviews`)
+    expect(reviews.items[0].my_score).toBeNull()
+    await call(a.api,'/api/me/privacy','PATCH',{...visibility,ratings:true})
+    expect((await call(b.api,`/api/profiles/${a.username}?tab=ratings`)).items[0].watched).toBe(false)
+    await call(a.api,'/api/me/privacy','PATCH',{...visibility,watched:'false'},400)
+    expect((await request.patch('/api/me/privacy',{headers:{Origin:baseURL},data:visibility})).status()).toBe(401)
+    await call(a.api,'/api/me/privacy','PATCH',visibility)
+    context=await browser.newContext({baseURL,storageState:await a.api.storageState()})
+    const page=await context.newPage()
+    await page.goto(`/u/${a.username}?tab=ratings`)
+    await expect(page.getByText('Только вы видите этот раздел',{exact:true})).toBeVisible()
+    await page.locator('.profile-actions [data-action=edit-profile]').click()
+    await page.locator('#privacy-form input[name=watched]').check()
+    await page.getByRole('button',{name:'Сохранить видимость',exact:true}).click()
+    await expect(page.locator('#modal')).not.toBeVisible()
+    expect((await call(a.api,'/api/me')).visibility).toEqual({...visibility,watched:true})
+    await page.getByRole('button',{name:'Выйти',exact:true}).first().click()
+    await page.goto(`/u/${a.username}?tab=ratings`)
+    await expect(page.getByRole('heading',{name:'Раздел скрыт',exact:true})).toBeVisible()
+    await expect(page.locator('.title-card')).toHaveCount(0)
+    await expect(page.locator('.profile-tabs a')).toHaveCount(1)
+  }finally{if(context)await context.close();await a.api.dispose();await b.api.dispose()}
+})
+
+test('gallery photos are resized, persist publicly, appear on comments and can be removed',async({playwright,browser,request})=>{
+  const a=await register(playwright,'photo','198.51.100.28')
+  const context=await browser.newContext({baseURL,storageState:await a.api.storageState(),viewport:{width:390,height:950}})
+  const page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message))
+  try{
+    await page.goto(`/u/${a.username}`)
+    await page.locator('.profile-actions [data-action=edit-profile]').click()
+    const png=await page.evaluate(()=>{
+      const canvas=document.createElement('canvas');canvas.width=1600;canvas.height=900
+      const context=canvas.getContext('2d');context.fillStyle='#8bbaf2';context.fillRect(0,0,1600,900)
+      return canvas.toDataURL('image/png').split(',')[1]
+    })
+    await page.locator('#profile-photo').setInputFiles({name:'my-gallery-photo.png',mimeType:'image/png',buffer:Buffer.from(png,'base64')})
+    await expect(page.locator('#save-photo')).toBeEnabled()
+    await expect(page.locator('#photo-preview>img')).toBeVisible()
+    await page.getByRole('button',{name:'Сохранить фото',exact:true}).click()
+    await expect(page.locator('#photo-preview .avatar>img')).toBeVisible()
+    const me=await call(context.request,'/api/me'),url=me.avatar_url
+    expect(url).toMatch(/^\/api\/avatars\//)
+    const image=await request.get(url)
+    expect(image.status()).toBe(200);expect(image.headers()['content-type']).toContain('image/jpeg')
+    expect((await image.body()).length).toBeLessThanOrEqual(262144)
+    await page.locator('.modal-close').click()
+    await page.reload()
+    await expect(page.locator('.profile-avatar img')).toHaveAttribute('src',url)
+    const title=(await call(a.api,'/api/catalog')).items[2].id
+    await call(a.api,`/api/titles/${title}/comments`,'POST',{content:'Comment with a gallery avatar',spoiler:false},201)
+    await page.goto(`/title/${title}?type=comments`)
+    await expect(page.locator(`.discussion-author img[src="${url}"]`)).toBeVisible()
+    const invalid=await a.api.put('/api/me/avatar',{headers:{'Content-Type':'image/jpeg'},data:Buffer.from('<svg onload="alert(1)"></svg>')})
+    expect(invalid.status()).toBe(400)
+    const huge=await a.api.put('/api/me/avatar',{headers:{'Content-Type':'image/jpeg'},data:Buffer.alloc(262145)})
+    expect(huge.status()).toBe(413)
+    expect((await request.delete('/api/me/avatar',{headers:{Origin:baseURL}})).status()).toBe(401)
+    await page.goto(`/u/${a.username}`)
+    await page.locator('.profile-actions [data-action=edit-profile]').click()
+    await page.getByRole('button',{name:'Удалить фото',exact:true}).click()
+    await expect(page.locator('#photo-preview img')).toHaveCount(0)
+    await expect(page.locator('#remove-photo')).toBeDisabled()
+    expect((await request.get(url)).status()).toBe(404)
+    expect((await call(context.request,'/api/me')).avatar_url).toBe('')
+    await page.locator('.modal-close').click()
+    await expect(page.locator('.profile-avatar img')).toHaveCount(0)
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(391)
+    expect(errors).toEqual([])
+  }finally{await context.close();await a.api.dispose()}
+})
+
+test('provider ratings stay distinct from Grade and failures leave a usable title page',async({page,request})=>{
+  const title=(await (await request.get('/api/catalog')).json()).items[0].id
+  const actual=await (await request.get(`/api/titles/${title}/external-ratings`)).json()
+  expect(actual.status).toBe('not_configured');expect(actual.imdb).toBeNull();expect(actual.kinopoisk).toBeNull()
+  let unavailable=false
+  await page.route('**/external-ratings',route=>route.fulfill({json:unavailable?{status:'unavailable',imdb:null,kinopoisk:null}:{status:'ok',imdb:{score:8.7,url:'https://www.imdb.com/title/tt0816692/'},kinopoisk:{score:8.6,url:'https://www.kinopoisk.ru/film/258687/'}}}))
+  await page.goto(`/title/${title}`)
+  await expect(page.locator('#external-ratings')).toContainText('8.7')
+  await expect(page.locator('#external-ratings')).toContainText('8.6')
+  await expect(page.locator('#external-ratings a')).toHaveCount(2)
+  await expect(page.locator('.overall-score')).toContainText('Grade')
+  unavailable=true
+  await page.reload()
+  await expect(page.locator('#external-ratings')).toContainText('Рейтинги пока недоступны')
+  await expect(page.locator('.rating-scale button')).toHaveCount(10)
 })

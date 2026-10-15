@@ -11,14 +11,14 @@ const icons = {
 export const icon = (name, cls = '') => `<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] || icons.film}</svg>`
 export const esc = (value = '') => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c])
 export const kindName = (kind) => ({ anime:t('Аниме'), movie:t('Фильм'), series:t('Сериал') })[kind] || t('Тайтл')
-export const avatar = (name = '', color = 'lime') => `<span class="avatar" data-color="${['lime','violet','blue','orange','pink','gray'].includes(color) ? color : 'lime'}" aria-hidden="true">${esc([...name.trim()][0]?.toUpperCase() || 'G')}</span>`
+export const avatar = (name = '', color = 'lime', photo = '') => `<span class="avatar" data-color="${['lime','violet','blue','orange','pink','gray'].includes(color) ? color : 'lime'}" aria-hidden="true">${esc([...name.trim()][0]?.toUpperCase() || 'G')}${/^\/api\/avatars\/[a-zA-Z0-9_-]+\/[0-9a-f-]{36}$/.test(photo) ? `<img src="${esc(photo)}" alt="" decoding="async">` : ''}</span>`
 export const poster = (item, lazy = true) => `<div class="poster-placeholder"><span>${esc(item.name)}</span>${item.poster ? html`<img src="${esc(item.poster)}" alt="Постер: ${esc(item.name)}" ${lazy ? 'loading="lazy"' : 'fetchpriority="high"'} decoding="async">` : ''}</div>`
-export async function api(url, { method = 'GET', body, signal } = {}) {
+export async function api(url, { method = 'GET', body, signal, raw = false } = {}) {
   let response
   try {
     response = await fetch(url, { method, signal, credentials: 'same-origin', cache:'no-store',
-      headers: { 'Accept-Language': language(), ...(method === 'GET' ? {} : { 'Content-Type':'application/json' }) },
-      ...(method === 'GET' ? {} : { body: JSON.stringify(body ?? {}) }),
+      headers: { 'Accept-Language': language(), ...(method === 'GET' ? {} : { 'Content-Type':raw ? 'image/jpeg' : 'application/json' }) },
+      ...(method === 'GET' ? {} : { body:raw ? body : JSON.stringify(body ?? {}) }),
     })
   } catch (error) {
     if (error.name === 'AbortError') throw error
