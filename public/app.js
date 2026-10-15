@@ -2,6 +2,7 @@ import { api, esc, icon, avatar, poster, kindName, toast, openModal, closeModal,
 import { t, html, language, setLanguage, applyShell } from './i18n.js'
 import { preparePhoto } from './photo.js'
 import { mountMotion, leavePage, syncNavigation, enableGestures } from './motion.js'
+import { mountTrailer, closeTrailer } from './trailer.js'
 
 const main = document.querySelector('#main')
 const state = { me: null, generation: 0, title: null, discussion: null, onboarding: null }
@@ -49,6 +50,7 @@ function authModal(mode = 'login') {
 }
 
 async function render({ resetScroll = false } = {}) {
+  closeTrailer()
   const generation = ++state.generation
   const path = location.pathname
   main.setAttribute('aria-busy','true')
@@ -181,7 +183,7 @@ async function titlePage(titleId) {
   return html`<div class="container title-page"><a href="/catalog" class="back-link">← В каталог</a><div class="title-layout"><aside class="title-sidebar"><div class="detail-poster">${poster(item,false)}</div><button class="button ${item.watched ? 'selected' : 'primary'} full" data-action="watch" data-id="${item.id}" data-watched="${item.watched ? 'true' : 'false'}">${icon(item.watched ? 'check' : 'plus')} ${item.watched ? t('Уже в просмотренном') : t('Смотрел')}</button><button class="button secondary full title-plan" data-action="plan" data-id="${item.id}" data-planned="${!!item.planned}" aria-pressed="${!!item.planned}">${icon('bookmark')} ${item.planned ? t('В планах') : t('В планы')}</button><p class="small muted center">Без оценки</p></aside>
     <div class="title-info"><div class="title-kicker"><span class="kind-label">${kindName(item.kind)}</span><span>${item.year || ''}</span><span>${esc(item.runtime)}</span></div><h1>${esc(item.name)}</h1><p class="original-name">${esc(item.original_name)}</p><div class="genre-tags">${item.genres.map((genre) => `<a href="/catalog?q=${encodeURIComponent(genre)}">${esc(genre)}</a>`).join('')}</div>
     <div class="title-overview"><div class="overall-score"><strong>${item.average ?? '—'}</strong><div>${icon('star')}<span>${item.votes ? html`${item.votes} оценок Grade` : t('Пока нет оценок')}</span></div></div><div id="external-ratings" data-id="${item.id}" aria-label="Рейтинги других сервисов">${ratingSources(null)}</div></div>
-    <p class="title-description">${esc(item.description || t('Описание пока не добавлено.'))}</p><section class="rating-section"><div><h2>Ваша оценка</h2><span>${item.my_score ? html`${item.my_score} из 10` : t('Без оценки')}</span></div><div class="rating-scale" role="group" aria-label="Оценка от 1 до 10">${Array.from({length:10},(_,i) => html`<button type="button" aria-label="Оценить на ${i+1}" aria-pressed="${item.my_score === i+1}" data-action="rate" data-id="${item.id}" data-score="${i+1}" class="${item.my_score === i+1 ? 'picked' : ''}">${i+1}</button>`).join('')}</div>${item.my_score ? html`<button class="text-button remove-rating" data-action="remove-rating" data-id="${item.id}">Удалить мою оценку</button>` : ''}</section>
+    <p class="title-description">${esc(item.description || t('Описание пока не добавлено.'))}</p><section id="title-trailer" class="title-trailer" aria-label="${t('Трейлер')}" hidden><div class="trailer-glow" aria-hidden="true"></div><div class="trailer-view"><img class="trailer-art" alt="" decoding="async"><div class="trailer-shade"></div><span class="trailer-eyebrow">GRADE CINEMA <span>✳</span> ${t('Трейлер')}</span><button type="button" class="trailer-play" aria-label="${t('Смотреть трейлер')}"><span aria-hidden="true">▶</span></button><div class="trailer-meta"><div><span class="trailer-meta-label">${t('Смотреть трейлер')}</span><strong class="trailer-film-name"></strong><small class="trailer-clip-name"></small></div><span class="trailer-meta-arrow" aria-hidden="true">↗</span></div></div></section><section class="rating-section"><div><h2>Ваша оценка</h2><span>${item.my_score ? html`${item.my_score} из 10` : t('Без оценки')}</span></div><div class="rating-scale" role="group" aria-label="Оценка от 1 до 10">${Array.from({length:10},(_,i) => html`<button type="button" aria-label="Оценить на ${i+1}" aria-pressed="${item.my_score === i+1}" data-action="rate" data-id="${item.id}" data-score="${i+1}" class="${item.my_score === i+1 ? 'picked' : ''}">${i+1}</button>`).join('')}</div>${item.my_score ? html`<button class="text-button remove-rating" data-action="remove-rating" data-id="${item.id}">Удалить мою оценку</button>` : ''}</section>
     <section class="discussion"><div class="discussion-header"><h2>Обсуждение</h2><button class="button secondary" data-action="review" data-id="${item.id}">${icon('plus')} Написать отзыв</button></div>
     <div class="discussion-toolbar"><nav class="discussion-tabs" aria-label="Тип обсуждения"><a class="${type === 'reviews' ? 'active' : ''}" href="/title/${item.id}?type=reviews&filter=${filter}">Отзывы</a><a class="${type === 'comments' ? 'active' : ''}" href="/title/${item.id}?type=comments&filter=${filter}">Комментарии</a></nav><label class="spoiler-filter">${icon('eye')}<select id="spoiler-filter" aria-label="Фильтр спойлеров"><option value="all" ${filter === 'all' ? 'selected' : ''}>Спойлеры скрыты</option><option value="clean" ${filter === 'clean' ? 'selected' : ''}>Без спойлеров</option></select></label></div>
     ${type === 'comments' ? html`<form id="comment-form" class="comment-form"><label for="comment-text">${state.me ? t('Комментарий') : t('Войдите, чтобы оставить комментарий')}</label><div id="reply-context" hidden></div><textarea id="comment-text" name="content" required maxlength="2000" rows="3" placeholder="Ваш комментарий"></textarea><div><label class="checkbox-label"><input type="checkbox" name="spoiler"> Есть спойлеры</label><button class="button primary" type="submit">Отправить ${icon('arrow')}</button></div></form>` : ''}
@@ -197,6 +199,7 @@ function discussionItem(row, type) {
 }
 
 function bindPage() {
+  if (state.title && document.querySelector('#title-trailer')) mountTrailer(state.title)
   const sources = document.querySelector('#external-ratings')
   if (sources) api(`/api/titles/${sources.dataset.id}/external-ratings`).then(data => {
     if (sources.isConnected) sources.innerHTML = ratingSources(data)

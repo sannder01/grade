@@ -10,6 +10,7 @@ import { getTrustedOrigins } from './origins.mjs'
 import { localeFor, localizeTitles } from './localization.mjs'
 import { avatarImage, avatarUrl, profileVisibility } from './avatar.mjs'
 import { ratingsFor } from './ratings.mjs'
+import { trailerFor } from './trailers.mjs'
 
 const publicPath = fileURLToPath(new URL('../public/', import.meta.url))
 export function createApp(auth) {
@@ -23,7 +24,7 @@ export function createApp(auth) {
     res.set({
       'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'strict-origin-when-cross-origin',
       'X-Frame-Options': 'DENY',
-      'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https://image.tmdb.org data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'",
+      'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https://image.tmdb.org data:; connect-src 'self'; frame-src https://www.youtube-nocookie.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'",
     })
     next()
   })
@@ -124,6 +125,11 @@ export function createApp(auth) {
     res.json(await importTitle(text(req.body.external_id, { max: 40 })))
   })
   app.get('/api/titles/:id', async (req, res) => res.json((await localizeTitles([await titleById(req.params.id, req.user?.id)], req.locale))[0]))
+  app.get('/api/titles/:id/trailer', async (req, res) => {
+    const title = await titleById(req.params.id)
+    try { res.json(await trailerFor(title)) }
+    catch { res.json({ status:'unavailable' }) }
+  })
   app.get('/api/titles/:id/external-ratings', async (req, res) => res.json(await ratingsFor(await titleById(req.params.id))))
   app.get('/api/titles/:id/my-review', async (req, res) => {
     const userId = requireUser(req)
