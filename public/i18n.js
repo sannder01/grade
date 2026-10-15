@@ -269,7 +269,7 @@ export function t(value) {
 export const html = (strings,...values) => strings.reduce((result,part,i) => result+t(part)+(i < values.length ? values[i] : ''),'')
 export function applyShell() {
   document.documentElement.lang = current
-  const labels = { '/':'Обзор', '/catalog':'Каталог', '/me?tab=planned':'В планах', '/me?tab=watched':'Смотрел', '/me?tab=ratings':'Оценки' }
+  const labels = { '/':'Обзор', '/catalog':'Каталог', '/me':'Профиль', '/me?tab=planned':'В планах', '/me?tab=watched':'Смотрел', '/me?tab=ratings':'Оценки' }
   document.querySelectorAll('.desktop-nav a,.mobile-nav a').forEach(link => { link.textContent = t(labels[link.getAttribute('href')]) })
   document.querySelector('.skip-link').textContent = t('К содержимому')
   document.querySelector('.header .brand').setAttribute('aria-label',t('Grade — главная'))

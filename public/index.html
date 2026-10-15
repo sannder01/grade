@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#111212">
   <meta name="description" content="Оценки, отзывы и списки просмотренного для аниме, фильмов и сериалов">
   <title>Grade — оценки аниме, фильмов и сериалов</title>
@@ -23,7 +23,7 @@
   </div></header>
   <main id="main" tabindex="-1"><div class="loading" role="status">Загрузка</div></main>
   <footer class="footer"><a href="/" class="brand">grade<span>✳</span></a><div class="credits">Данные: <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer">TMDB</a><br><a href="/about">О проекте</a></div></footer>
-  <nav class="mobile-nav" aria-label="Мобильная навигация"><a href="/">Обзор</a><a href="/catalog">Каталог</a><a href="/me?tab=planned">В планах</a><a href="/me?tab=watched">Смотрел</a><a href="/me?tab=ratings">Оценки</a></nav>
+  <nav class="mobile-nav" aria-label="Мобильная навигация"><span class="nav-indicator" aria-hidden="true"></span><a href="/" data-nav="home">Обзор</a><a href="/catalog" data-nav="catalog">Каталог</a><a href="/me" data-nav="profile">Профиль</a></nav>
   <dialog id="modal" class="modal"><div class="modal-inner"><button class="modal-close icon-button" aria-label="Закрыть" type="button">×</button><div id="modal-content"></div></div></dialog>
   <div id="toast" class="toast" role="status" hidden></div>
 </body>
