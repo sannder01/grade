@@ -27,7 +27,7 @@ export async function mountTrailer(item) {
     const result = await api(`/api/titles/${item.id}/trailer`)
     if (!section.isConnected || result.status !== 'ok' || !/^[\w-]{11}$/.test(result.key)) return
     const image = section.querySelector('.trailer-art')
-    const artwork = item.backdrop || item.poster
+    const artwork = result.backdrop || item.backdrop || ''
     if (artwork) image.src = artwork
     image.alt = ''
     section.querySelector('.trailer-film-name').textContent = item.name
@@ -36,7 +36,8 @@ export async function mountTrailer(item) {
     play.setAttribute('aria-label', `${t('Смотреть трейлер')}: ${item.name}`)
     play.addEventListener('click', () => {
       trigger = play
-      ambient.src = artwork || ''
+      if (artwork) ambient.src = artwork
+      else ambient.removeAttribute('src')
       caption.textContent = item.name
       dialog.querySelector('.trailer-external').href = `https://www.youtube.com/watch?v=${result.key}`
       video.title = `${t('Трейлер')}: ${item.name}`
