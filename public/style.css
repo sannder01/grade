@@ -3097,3 +3097,18 @@ img {
   .profile-tabs,.category-pills,.discussion-tabs { scroll-behavior:auto }
   .watched-badge,.personal-score,.rating-scale .picked,.modal[open]::backdrop,#main[aria-busy=true]::before { animation:none }
 }
+
+.card-actions { display:flex; align-items:stretch; gap:6px; margin-top:12px }
+.card-actions .card-watch { margin-top:0; flex:1; min-width:0 }
+.card-plan { display:flex; align-items:center; justify-content:center; width:30px; flex-shrink:0; border:1px solid var(--line); border-radius:5px; color:var(--muted); background:transparent }
+.card-plan .icon { width:14px; height:14px }
+.card-plan.selected { color:var(--accent); background:var(--accent-dim); border-color:#d6ec8944 }
+.card-plan.selected .icon { fill:#d6ec8926 }
+.title-plan { margin-top:10px }
+.profile-tabs { overflow-x:auto }
+.profile-tabs a { flex-shrink:0 }
+@media(max-width:950px) and (min-width:761px) {
+  .header-inner { gap:14px }
+  .desktop-nav { gap:11px; font-size:10px }
+  .header-search { width:160px; min-width:105px }
+}

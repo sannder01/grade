@@ -14,5 +14,5 @@ test('avatar validation accepts JPEGs and strips metadata without accepting acti
   const huge = Buffer.from(jpeg), frame = huge.indexOf(Buffer.from([0xff,0xc0]))
   assert.ok(frame > 0); huge.writeUInt16BE(4096,frame+5)
   assert.throws(() => avatarImage(huge),error => error.status === 400)
-  assert.deepEqual(profileVisibility({ show_ratings:false }),{watched:true,ratings:false,reviews:true,comments:true})
+  assert.deepEqual(profileVisibility({ show_ratings:false }),{watched:true,ratings:false,reviews:true,comments:true,planned:true})
 })

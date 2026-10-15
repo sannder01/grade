@@ -304,7 +304,7 @@ test('English, profile preferences, password changes and mobile sign out work to
 test('profile privacy protects lists, counts and cross-collection metadata while keeping discussions public',async({playwright,browser,request})=>{
   const a=await register(playwright,'private','198.51.100.26'),b=await register(playwright,'guest','198.51.100.27')
   const title=(await call(a.api,'/api/catalog')).items[4].id
-  const visibility={watched:false,ratings:false,reviews:false,comments:false}
+  const visibility={watched:false,ratings:false,reviews:false,comments:false,planned:false}
   let context
   try{
     await call(a.api,`/api/titles/${title}/watched`,'PUT',{watched:true})
@@ -317,7 +317,7 @@ test('profile privacy protects lists, counts and cross-collection metadata while
       for(const visitor of [b.api,request]){
         const profile=await call(visitor,`/api/profiles/${a.username}?tab=${tab}`)
         expect(profile.hidden).toBe(true);expect(profile.items).toEqual([]);expect(profile.pages).toBe(0)
-        expect(profile.stats).toEqual({rated:null,watched:null,reviews:null,comments:null,average:null})
+        expect(profile.stats).toEqual({rated:null,watched:null,reviews:null,comments:null,planned:null,average:null})
       }
       const own=await call(a.api,`/api/profiles/${a.username}?tab=${tab}`)
       expect(own.hidden).toBe(false);expect(own.items).toHaveLength(1)
@@ -416,4 +416,54 @@ test('provider ratings stay distinct from Grade and failures leave a usable titl
   await page.reload()
   await expect(page.locator('#external-ratings')).toContainText('Рейтинги пока недоступны')
   await expect(page.locator('.rating-scale button')).toHaveCount(10)
+})
+
+test('watchlist persists independently, respects privacy and average rating stays visible only to its owner',async({playwright,browser,request})=>{
+  const a=await register(playwright,'planner','198.51.100.29'),b=await register(playwright,'visitor','198.51.100.30')
+  const title=(await call(a.api,'/api/catalog')).items[1].id
+  const context=await browser.newContext({baseURL,storageState:await a.api.storageState()})
+  const guest=await browser.newContext({baseURL})
+  try{
+    await call(a.api,`/api/titles/${title}/planned`,'PUT',{planned:true,user_id:b.me.user.id})
+    await call(a.api,`/api/titles/${title}/planned`,'PUT',{planned:true})
+    let own=await call(a.api,`/api/profiles/${a.username}?tab=planned`)
+    expect(own.items).toHaveLength(1);expect(own.stats.planned).toBe(1)
+    expect(own.stats.watched).toBe(0);expect(own.stats.rated).toBe(0)
+    expect((await call(b.api,`/api/profiles/${b.username}?tab=planned`)).items).toHaveLength(0)
+    await call(a.api,`/api/titles/${title}/rating`,'PUT',{score:8})
+    expect((await call(a.api,`/api/profiles/${a.username}`)).stats.average).toBe(8)
+    for(const visitor of [b.api,request]) expect((await call(visitor,`/api/profiles/${a.username}`)).stats.average).toBeNull()
+    const page=await context.newPage(),publicPage=await guest.newPage()
+    await page.goto(`/u/${a.username}?tab=planned`)
+    await expect(page.locator('.profile-stats')).toContainText('средняя оценка')
+    await expect(page.locator('.title-card')).toHaveCount(1)
+    await page.reload()
+    await page.getByRole('button',{name:'Убрать из планов',exact:true}).click()
+    await expect(page.locator('.title-card')).toHaveCount(0)
+    await page.goto(`/title/${title}`)
+    await page.locator('.title-plan').click()
+    await expect(page.locator('.title-plan')).toHaveAttribute('aria-pressed','true')
+    await page.reload()
+    await expect(page.locator('.title-plan')).toHaveAttribute('aria-pressed','true')
+    await page.getByRole('button',{name:'Смотрел',exact:true}).click()
+    await expect(page.locator('.title-plan')).toHaveAttribute('aria-pressed','false')
+    own=await call(a.api,`/api/profiles/${a.username}?tab=planned`)
+    expect(own.stats.planned).toBe(0);expect(own.stats.watched).toBe(1);expect(own.stats.rated).toBe(1)
+    await page.goto('/catalog')
+    await page.locator(`.title-card[data-title="${title}"] [data-action=plan]`).click()
+    await expect(page.locator(`.title-card[data-title="${title}"] [data-action=plan]`)).toHaveAttribute('aria-pressed','true')
+    await publicPage.goto(`/u/${a.username}?tab=planned`)
+    await expect(publicPage.locator('.title-card')).toHaveCount(1)
+    await expect(publicPage.locator('.profile-stats')).not.toContainText('средняя оценка')
+    await call(a.api,'/api/me/privacy','PATCH',{watched:true,ratings:true,reviews:true,comments:true,planned:false})
+    const hidden=await call(b.api,`/api/profiles/${a.username}?tab=planned`)
+    expect(hidden.hidden).toBe(true);expect(hidden.items).toEqual([]);expect(hidden.stats.planned).toBeNull()
+    expect((await call(b.api,`/api/profiles/${a.username}?tab=watched`)).items[0].planned).toBe(false)
+    await publicPage.reload()
+    await expect(publicPage.getByRole('heading',{name:'Раздел скрыт'})).toBeVisible()
+    await call(a.api,`/api/titles/${title}/planned`,'PUT',{planned:'true'},400)
+    expect((await request.put(`/api/titles/${title}/planned`,{headers:{Origin:baseURL},data:{planned:true}})).status()).toBe(401)
+    await page.getByRole('button',{name:'Switch to English',exact:true}).click()
+    await expect(page.locator('.desktop-nav')).toContainText('Watchlist')
+  }finally{await guest.close();await context.close();await a.api.dispose();await b.api.dispose()}
 })

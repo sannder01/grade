@@ -99,8 +99,9 @@ export function createApp(auth) {
   })
   app.patch('/api/me/privacy', async (req, res) => {
     const userId = await write(req), values = ['watched','ratings','reviews','comments'].map(key => boolean(req.body[key]))
-    await query(`INSERT INTO profiles(user_id,show_watched,show_ratings,show_reviews,show_comments) VALUES($1,$2,$3,$4,$5)
-      ON CONFLICT(user_id) DO UPDATE SET show_watched=EXCLUDED.show_watched,show_ratings=EXCLUDED.show_ratings,show_reviews=EXCLUDED.show_reviews,show_comments=EXCLUDED.show_comments`,[userId,...values])
+    const planned = req.body.planned === undefined ? null : boolean(req.body.planned)
+    await query(`INSERT INTO profiles(user_id,show_watched,show_ratings,show_reviews,show_comments,show_planned) VALUES($1,$2,$3,$4,$5,COALESCE($6,TRUE))
+      ON CONFLICT(user_id) DO UPDATE SET show_watched=EXCLUDED.show_watched,show_ratings=EXCLUDED.show_ratings,show_reviews=EXCLUDED.show_reviews,show_comments=EXCLUDED.show_comments,show_planned=COALESCE($6,profiles.show_planned)`,[userId,...values,planned])
     res.json({ ok:true })
   })
   app.post('/api/onboarding/complete', async (req, res) => {
@@ -130,9 +131,18 @@ export function createApp(auth) {
   })
   app.put('/api/titles/:id/watched', async (req, res) => {
     const userId = await write(req), title = await titleById(req.params.id)
-    if (boolean(req.body.watched)) await query('INSERT INTO watched(user_id,title_id) VALUES($1,$2) ON CONFLICT DO NOTHING', [userId, title.id])
+    if (boolean(req.body.watched)) await transaction(async client => {
+      await client.query('INSERT INTO watched(user_id,title_id) VALUES($1,$2) ON CONFLICT DO NOTHING', [userId,title.id])
+      await client.query('DELETE FROM planned WHERE user_id=$1 AND title_id=$2', [userId,title.id])
+    })
     else await query('DELETE FROM watched WHERE user_id=$1 AND title_id=$2', [userId, title.id])
     res.json({ watched: req.body.watched })
+  })
+  app.put('/api/titles/:id/planned', async (req, res) => {
+    const userId = await write(req), title = await titleById(req.params.id), planned = boolean(req.body.planned)
+    if (planned) await query('INSERT INTO planned(user_id,title_id) VALUES($1,$2) ON CONFLICT DO NOTHING',[userId,title.id])
+    else await query('DELETE FROM planned WHERE user_id=$1 AND title_id=$2',[userId,title.id])
+    res.json({ planned })
   })
   app.put('/api/titles/:id/rating', async (req, res) => {
     const userId = await write(req), title = await titleById(req.params.id), value = score(req.body.score)
@@ -148,7 +158,7 @@ export function createApp(auth) {
     const handle = text(req.params.username, { max: 100 })
     const row = (await query(`SELECT u.id,u.name,COALESCE(u.username,u.id) AS username,u."createdAt" AS joined_at,
       COALESCE(p.bio,'') AS bio,COALESCE(p.avatar_color,'lime') AS avatar_color,a.version AS avatar_version,
-      p.show_watched,p.show_ratings,p.show_reviews,p.show_comments
+      p.show_watched,p.show_ratings,p.show_reviews,p.show_comments,p.show_planned
       FROM "user" u LEFT JOIN profiles p ON p.user_id=u.id LEFT JOIN profile_avatars a ON a.user_id=u.id WHERE u.username=$1 OR u.id=$1`, [handle])).rows[0]
     if (!row) throw new HttpError(404, 'Профиль не найден')
     const own = row.id === req.user?.id, visibility = profileVisibility(row)
@@ -156,10 +166,11 @@ export function createApp(auth) {
       avatar_color:row.avatar_color, avatar_url:avatarUrl(row.id,row.avatar_version) }
     const stats = (await query(`SELECT (SELECT COUNT(*)::int FROM ratings WHERE user_id=$1) AS rated,
       (SELECT COUNT(*)::int FROM watched WHERE user_id=$1) AS watched,
+      (SELECT COUNT(*)::int FROM planned WHERE user_id=$1) AS planned,
       (SELECT COUNT(*)::int FROM reviews WHERE user_id=$1) AS reviews,
       (SELECT COUNT(*)::int FROM comments WHERE user_id=$1) AS comments,
       (SELECT ROUND(AVG(score),1)::float FROM ratings WHERE user_id=$1) AS average`, [user.id])).rows[0]
-    const tabs = ['ratings','watched','reviews','comments']
+    const tabs = ['ratings','watched','planned','reviews','comments']
     const tab = tabs.includes(req.query.tab) ? req.query.tab : own ? 'ratings' : tabs.find(key => visibility[key]) || 'ratings'
     const current = page(req.query.page), hidden = !own && !visibility[tab]
     let items = []
@@ -169,16 +180,18 @@ export function createApp(auth) {
         (SELECT score FROM ratings WHERE user_id=$1 AND title_id=t.id) AS my_score
         FROM ${table} r JOIN titles t ON t.id=r.title_id WHERE r.user_id=$1 ORDER BY r.${order} DESC,r.id DESC LIMIT 24 OFFSET $2`, [user.id,(current-1)*24])).rows.map(row => spoilerContent(row))
     } else if (!hidden) {
-      const table = tab === 'watched' ? 'watched' : 'ratings', order = tab === 'watched' ? 'created_at' : 'updated_at'
+      const table = ['watched','planned'].includes(tab) ? tab : 'ratings', order = tab === 'ratings' ? 'updated_at' : 'created_at'
       items = (await query(`SELECT t.*,(SELECT score FROM ratings WHERE user_id=$1 AND title_id=t.id) AS my_score,
-        EXISTS(SELECT 1 FROM watched WHERE user_id=$1 AND title_id=t.id) AS watched FROM ${table} list JOIN titles t ON t.id=list.title_id
+        EXISTS(SELECT 1 FROM watched WHERE user_id=$1 AND title_id=t.id) AS watched,
+        EXISTS(SELECT 1 FROM planned WHERE user_id=$1 AND title_id=t.id) AS planned FROM ${table} list JOIN titles t ON t.id=list.title_id
         WHERE list.user_id=$1 ORDER BY list.${order} DESC,t.id DESC LIMIT 24 OFFSET $2`, [user.id,(current-1)*24])).rows
     }
     const total = stats[tab === 'ratings' ? 'rated' : tab]
     if (!own) {
-      if (!visibility.ratings) { stats.rated = null; stats.average = null }
-      for (const key of ['watched','reviews','comments']) if (!visibility[key]) stats[key] = null
-      items = items.map(item => ({ ...item, my_score:visibility.ratings ? item.my_score : null, watched:visibility.watched ? item.watched : false }))
+      stats.average = null
+      if (!visibility.ratings) stats.rated = null
+      for (const key of ['watched','reviews','comments','planned']) if (!visibility[key]) stats[key] = null
+      items = items.map(item => ({ ...item, my_score:visibility.ratings ? item.my_score : null, watched:visibility.watched ? item.watched : false, planned:visibility.planned ? item.planned : false }))
     }
     res.json({ user, stats, visibility, hidden, items:await localizeTitles(items,req.locale), tab, page:current, pages:hidden ? 0 : Math.ceil(total/24), own })
   })

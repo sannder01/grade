@@ -32,4 +32,4 @@ export function avatarImage(buffer) {
   invalid()
 }
 export const avatarUrl = (userId, version) => version ? `/api/avatars/${encodeURIComponent(userId)}/${version}` : ''
-export const profileVisibility = profile => Object.fromEntries(['watched','ratings','reviews','comments'].map(key => [key,profile?.[`show_${key}`] !== false]))
+export const profileVisibility = profile => Object.fromEntries(['watched','ratings','reviews','comments','planned'].map(key => [key,profile?.[`show_${key}`] !== false]))

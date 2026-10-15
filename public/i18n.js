@@ -245,7 +245,13 @@ const messages = {
   "Фото не найдено": "Photo not found",
   "Оценки, отзывы и просмотренное для аниме, фильмов и сериалов — списки независимы": "Ratings, reviews and watched titles for anime, movies and TV series — each list is independent",
   "Видимость коллекций настраивается в профиле — публикации в обсуждениях остаются публичными": "Choose which collections appear on your profile — posts in discussions stay public",
-  "Внешние рейтинги": "External ratings"
+  "Внешние рейтинги": "External ratings",
+  "В планах": "Watchlist",
+  "В планы": "Add to watchlist",
+  "Убрать из планов": "Remove from watchlist",
+  "Добавлено в планы": "Added to watchlist",
+  "Удалено из планов": "Removed from watchlist",
+  "Добавьте то, что хотите посмотреть": "Add titles you want to watch"
 }
 let current = 'ru'
 try { current = localStorage.getItem('grade:language') === 'en' ? 'en' : 'ru' } catch { /* Optional preference */ }
@@ -263,7 +269,7 @@ export function t(value) {
 export const html = (strings,...values) => strings.reduce((result,part,i) => result+t(part)+(i < values.length ? values[i] : ''),'')
 export function applyShell() {
   document.documentElement.lang = current
-  const labels = { '/':'Обзор', '/catalog':'Каталог', '/me?tab=watched':'Смотрел', '/me?tab=ratings':'Оценки' }
+  const labels = { '/':'Обзор', '/catalog':'Каталог', '/me?tab=planned':'В планах', '/me?tab=watched':'Смотрел', '/me?tab=ratings':'Оценки' }
   document.querySelectorAll('.desktop-nav a,.mobile-nav a').forEach(link => { link.textContent = t(labels[link.getAttribute('href')]) })
   document.querySelector('.skip-link').textContent = t('К содержимому')
   document.querySelector('.header .brand').setAttribute('aria-label',t('Grade — главная'))

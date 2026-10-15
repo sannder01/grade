@@ -5,6 +5,7 @@ import { catalogSearch } from './localization.mjs'
 const aggregates = `LEFT JOIN LATERAL (SELECT ROUND(AVG(score),1)::float AS average,COUNT(*)::int AS votes FROM ratings WHERE title_id=t.id) stats ON TRUE`
 const columns = `t.*,stats.average,stats.votes,
   EXISTS(SELECT 1 FROM watched WHERE user_id=$1 AND title_id=t.id) AS watched,
+  EXISTS(SELECT 1 FROM planned WHERE user_id=$1 AND title_id=t.id) AS planned,
   (SELECT score FROM ratings WHERE user_id=$1 AND title_id=t.id) AS my_score`
 
 export async function catalog(params, userId = null) {

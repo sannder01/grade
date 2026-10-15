@@ -3,6 +3,7 @@ import { motion, reducedMotion } from './motion.js'
 const icons = {
   star: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z"/>',
   check: '<path d="m5 12 4 4L19 6"/>', plus: '<path d="M12 5v14M5 12h14"/>',
+  bookmark: '<path d="M6 4h12v17l-6-4-6 4V4Z"/>',
   arrow: '<path d="M4 12h16m-6-6 6 6-6 6"/>', eye: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
   chat: '<path d="M21 11a8 8 0 0 1-8 8H7l-5 3V11a9 9 0 1 1 19 0Z"/>',
   film: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M7 3v18M17 3v18M3 8h4m10 0h4M3 16h4m10 0h4"/>',
@@ -70,7 +71,7 @@ export function cards(items, showWatch = true) {
   return `<div class="poster-grid">${items.map((item) => `<article class="title-card" data-title="${item.id}">
     <a href="/title/${item.id}" class="poster-link">${poster(item)}<span class="poster-kind">${kindName(item.kind)}</span>${item.watched ? html`<span class="watched-badge">${icon('check')} Смотрел</span>` : ''}${item.my_score ? `<span class="personal-score">${icon('star')} ${item.my_score}</span>` : ''}</a>
     <div class="card-info"><a href="/title/${item.id}" class="card-title">${esc(item.name)}</a><div class="card-meta"><span>${item.year || '—'} · ${kindName(item.kind)}</span>${item.votes ? `<span class="community-score">${icon('star')} ${item.average}</span>` : ''}</div>
-    ${showWatch ? `<button class="card-watch ${item.watched ? 'selected' : ''}" type="button" data-action="watch" data-id="${item.id}" data-watched="${item.watched ? 'true' : 'false'}">${icon(item.watched ? 'check' : 'plus')} ${item.watched ? t('Смотрел') : t('В просмотренное')}</button>` : ''}</div>
+    ${showWatch ? `<div class="card-actions"><button class="card-watch ${item.watched ? 'selected' : ''}" type="button" data-action="watch" data-id="${item.id}" data-watched="${item.watched ? 'true' : 'false'}">${icon(item.watched ? 'check' : 'plus')} ${t('Смотрел')}</button><button class="card-plan ${item.planned ? 'selected' : ''}" type="button" data-action="plan" data-id="${item.id}" data-planned="${!!item.planned}" aria-pressed="${!!item.planned}" aria-label="${item.planned ? t('Убрать из планов') : t('В планы')}" title="${item.planned ? t('Убрать из планов') : t('В планы')}">${icon('bookmark')}</button></div>` : ''}</div>
   </article>`).join('')}</div>`
 }
 export function pager(page, pages, makeUrl) {

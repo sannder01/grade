@@ -77,7 +77,7 @@ export function enableGestures(main,navigate) {
       target = tabs[index+step]?.getAttribute('href')
       if (!target && location.pathname.startsWith('/u/')) target = '/catalog'
     } else {
-      const routes = ['/','/catalog','/me?tab=watched','/me?tab=ratings']
+      const routes = ['/','/catalog','/me?tab=planned','/me?tab=watched','/me?tab=ratings']
       const index = location.pathname === '/catalog' ? 1 : routes.indexOf(origin.route)
       if (index >= 0) target = routes[index+step]
     }
