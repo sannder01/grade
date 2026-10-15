@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { gzipSync } from 'node:zlib'
 
-// Only generated dependency metadata and screenshots of the public landing page.
+// Only generated dependency metadata, public pages and synthetic CI profile settings.
 // This lets a reviewer inspect CI output without access to the CI runner's disk.
 const emit = (name, data) => {
   const encoded = data.toString('base64')
@@ -13,3 +13,5 @@ for (const width of [390, 1440]) {
   try { emit(`IMAGE${width}`, await readFile(`test-results/grade-review-${width}.jpg`)) }
   catch { /* A failed browser startup may not produce a screenshot. */ }
 }
+try { emit('IMAGESETTINGS', await readFile('test-results/grade-settings.jpg')) }
+catch { /* The settings scenario may not have run. */ }

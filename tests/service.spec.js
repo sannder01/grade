@@ -366,6 +366,8 @@ test('gallery photos are resized, persist publicly, appear on comments and can b
     await page.locator('#profile-photo').setInputFiles({name:'my-gallery-photo.png',mimeType:'image/png',buffer:Buffer.from(png,'base64')})
     await expect(page.locator('#save-photo')).toBeEnabled()
     await expect(page.locator('#photo-preview>img')).toBeVisible()
+    await page.locator('#modal').evaluate(element=>{element.scrollTop=0})
+    await page.screenshot({path:'test-results/grade-settings.jpg',type:'jpeg',quality:65})
     await page.getByRole('button',{name:'Сохранить фото',exact:true}).click()
     await expect(page.locator('#photo-preview .avatar>img')).toBeVisible()
     const me=await call(context.request,'/api/me'),url=me.avatar_url
