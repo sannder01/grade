@@ -41,3 +41,16 @@ test('provider failures are retryable and missing configuration stays explicit',
   delete process.env.TMDB_READ_TOKEN
   await assert.rejects(externalSearch('Unconfigured regression'), error => error.status === 503)
 })
+
+test('external search keeps English and Russian provider caches separate', async t => {
+  const previous = process.env.TMDB_READ_TOKEN
+  process.env.TMDB_READ_TOKEN = 'isolated-provider-test-token'
+  t.after(() => { if (previous === undefined) delete process.env.TMDB_READ_TOKEN; else process.env.TMDB_READ_TOKEN = previous })
+  const fetch = t.mock.method(globalThis, 'fetch', async url => Response.json({ results: [
+    { id: 99, media_type: 'movie', title: new URL(url).searchParams.get('language') === 'en-US' ? 'English title' : 'Русское название' },
+  ] }))
+  assert.equal((await externalSearch('Language regression', null, 'ru'))[0].name, 'Русское название')
+  assert.equal((await externalSearch('Language regression', null, 'en'))[0].name, 'English title')
+  assert.equal((await externalSearch('Language regression', 'movie', 'en'))[0].name, 'English title')
+  assert.equal(fetch.mock.callCount(), 2)
+})

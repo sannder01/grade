@@ -1,5 +1,6 @@
 import { query } from './db.mjs'
 import { HttpError, id, page } from './validation.mjs'
+import { catalogSearch } from './localization.mjs'
 
 const aggregates = `LEFT JOIN LATERAL (SELECT ROUND(AVG(score),1)::float AS average,COUNT(*)::int AS votes FROM ratings WHERE title_id=t.id) stats ON TRUE`
 const columns = `t.*,stats.average,stats.votes,
@@ -8,7 +9,7 @@ const columns = `t.*,stats.average,stats.votes,
 
 export async function catalog(params, userId = null) {
   const kind = ['anime','movie','series'].includes(params.kind) ? params.kind : null
-  const search = String(params.q || '').trim().slice(0, 100)
+  const search = catalogSearch(String(params.q || '').trim().slice(0, 100))
   const sort = { popular: 't.popularity DESC,t.id', rating: 'stats.average DESC NULLS LAST,stats.votes DESC,t.id', new: 't.year DESC NULLS LAST,t.id' }[params.sort] || 't.popularity DESC,t.id'
   const current = page(params.page)
   const values = [userId, kind, search, `%${search.replace(/[\\%_]/g, '\\$&')}%`]
@@ -25,22 +26,22 @@ export async function titleById(value, userId = null) {
 }
 
 const externalCache = new Map()
-export async function externalSearch(search, kind = null) {
+export async function externalSearch(search, kind = null, locale = 'ru') {
   if (!process.env.TMDB_READ_TOKEN) throw new HttpError(503, 'Внешний каталог ещё не подключён. Поиск по подборке Grade доступен.')
-  const cacheKey = search.trim().toLocaleLowerCase()
+  const cacheKey = `${locale}:${search.trim().toLocaleLowerCase()}`
   let cached = externalCache.get(cacheKey)
   if (!cached || cached.expires < Date.now()) {
     if (externalCache.size >= 100) externalCache.delete(externalCache.keys().next().value)
-    cached = { expires: Date.now() + 10 * 60 * 1000, value: fetchExternal(search) }
+    cached = { expires: Date.now() + 10 * 60 * 1000, value: fetchExternal(search, locale) }
     externalCache.set(cacheKey, cached)
     cached.value.catch(() => { if (externalCache.get(cacheKey) === cached) externalCache.delete(cacheKey) })
   }
   const items = await cached.value
   return kind ? items.filter(item => item.kind === kind) : items
 }
-async function fetchExternal(search) {
+async function fetchExternal(search, locale) {
   const url = new URL('https://api.themoviedb.org/3/search/multi')
-  url.search = new URLSearchParams({ query: search, language: 'ru-RU', include_adult: 'false' }).toString()
+  url.search = new URLSearchParams({ query: search, language: locale === 'en' ? 'en-US' : 'ru-RU', include_adult: 'false' }).toString()
   let data
   try {
     const response = await fetch(url, { headers: { Authorization: `Bearer ${process.env.TMDB_READ_TOKEN}` }, signal: AbortSignal.timeout(8000) })

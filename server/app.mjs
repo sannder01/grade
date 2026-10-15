@@ -6,6 +6,7 @@ import { query, transaction } from './db.mjs'
 import { catalog, titleById, externalSearch, importTitle } from './catalog.mjs'
 import { HttpError, text, id, score, boolean, page, spoilerContent } from './validation.mjs'
 import { getTrustedOrigins } from './origins.mjs'
+import { localeFor, localizeTitles } from './localization.mjs'
 
 const publicPath = fileURLToPath(new URL('../public/', import.meta.url))
 export function createApp(auth) {
@@ -24,7 +25,8 @@ export function createApp(auth) {
     next()
   })
   app.use('/api', (req, res, next) => {
-    res.set({ 'Cache-Control': 'no-store, private', Vary: 'Cookie' })
+    req.locale = localeFor(req.headers['accept-language'])
+    res.set({ 'Cache-Control': 'no-store, private', Vary: 'Cookie, Accept-Language' })
     if (!['GET','HEAD','OPTIONS'].includes(req.method)) {
       if (req.headers.origin ? !trustedOrigins.has(req.headers.origin) : req.headers['sec-fetch-site'] !== 'same-origin')
         return next(new HttpError(403, 'Запрос должен быть отправлен с сайта Grade'))
@@ -62,15 +64,17 @@ export function createApp(auth) {
   app.get('/api/me', async (req, res) => {
     if (!req.user) return res.json({ user: null })
     const profile = (await query('SELECT * FROM profiles WHERE user_id=$1', [req.user.id])).rows[0]
-    res.json({ user: { id: req.user.id, name: req.user.name, username: req.user.username || req.user.id, email: req.user.email }, bio: profile?.bio || '', onboarding_done: profile?.onboarding_done || false })
+    res.json({ user: { id: req.user.id, name: req.user.name, username: req.user.username || req.user.id, email: req.user.email }, bio: profile?.bio || '', avatar_color: profile?.avatar_color || 'lime', onboarding_done: profile?.onboarding_done || false })
   })
   app.patch('/api/me', async (req, res) => {
     const userId = await write(req)
     const name = text(req.body.name, { min: 2, max: 40, label: 'Имя' })
     const bio = text(req.body.bio ?? '', { min: 0, max: 400, label: 'О себе' })
+    const color = req.body.avatar_color
+    if (color !== undefined && !['lime','violet','blue','orange','pink','gray'].includes(color)) throw new HttpError(400, 'Некорректный цвет аватара')
     await transaction(async (client) => {
       await client.query('UPDATE "user" SET name=$1,"updatedAt"=NOW() WHERE id=$2', [name, userId])
-      await client.query('INSERT INTO profiles(user_id,bio) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET bio=EXCLUDED.bio', [userId, bio])
+      await client.query("INSERT INTO profiles(user_id,bio,avatar_color) VALUES($1,$2,COALESCE($3,'lime')) ON CONFLICT(user_id) DO UPDATE SET bio=EXCLUDED.bio,avatar_color=COALESCE($3,profiles.avatar_color)", [userId, bio, color ?? null])
     })
     res.json({ ok: true })
   })
@@ -79,18 +83,21 @@ export function createApp(auth) {
     await query('INSERT INTO profiles(user_id,onboarding_done) VALUES($1,TRUE) ON CONFLICT(user_id) DO UPDATE SET onboarding_done=TRUE', [userId])
     res.json({ ok: true })
   })
-  app.get('/api/catalog', async (req, res) => res.json(await catalog(req.query, req.user?.id)))
+  app.get('/api/catalog', async (req, res) => {
+    const data = await catalog(req.query, req.user?.id)
+    res.json({ ...data, items: await localizeTitles(data.items, req.locale) })
+  })
   app.get('/api/catalog/external', async (req, res) => {
     const search = text(req.query.q, { min: 2, max: 100, label: 'Поиск' })
     await limitRequests(`search:${req.user?.id || req.ip}`, 30)
     const kind = ['anime','movie','series'].includes(req.query.kind) ? req.query.kind : null
-    res.json({ items: await externalSearch(search, kind) })
+    res.json({ items: await externalSearch(search, kind, req.locale) })
   })
   app.post('/api/catalog/import', async (req, res) => {
     await write(req)
     res.json(await importTitle(text(req.body.external_id, { max: 40 })))
   })
-  app.get('/api/titles/:id', async (req, res) => res.json(await titleById(req.params.id, req.user?.id)))
+  app.get('/api/titles/:id', async (req, res) => res.json((await localizeTitles([await titleById(req.params.id, req.user?.id)], req.locale))[0]))
   app.get('/api/titles/:id/my-review', async (req, res) => {
     const userId = requireUser(req)
     res.json((await query('SELECT * FROM reviews WHERE user_id=$1 AND title_id=$2', [userId, id(req.params.id)])).rows[0] || null)
@@ -104,7 +111,7 @@ export function createApp(auth) {
   app.put('/api/titles/:id/rating', async (req, res) => {
     const userId = await write(req), title = await titleById(req.params.id), value = score(req.body.score)
     await query('INSERT INTO ratings(user_id,title_id,score) VALUES($1,$2,$3) ON CONFLICT(user_id,title_id) DO UPDATE SET score=EXCLUDED.score,updated_at=NOW()', [userId, title.id, value])
-    res.json(await titleById(title.id, userId))
+    res.json((await localizeTitles([await titleById(title.id, userId)], req.locale))[0])
   })
   app.delete('/api/titles/:id/rating', async (req, res) => {
     const userId = await write(req)
@@ -113,7 +120,7 @@ export function createApp(auth) {
   })
   app.get('/api/profiles/:username', async (req, res) => {
     const handle = text(req.params.username, { max: 100 })
-    const user = (await query(`SELECT u.id,u.name,COALESCE(u.username,u.id) AS username,u."createdAt" AS joined_at,COALESCE(p.bio,'') AS bio
+    const user = (await query(`SELECT u.id,u.name,COALESCE(u.username,u.id) AS username,u."createdAt" AS joined_at,COALESCE(p.bio,'') AS bio,COALESCE(p.avatar_color,'lime') AS avatar_color
       FROM "user" u LEFT JOIN profiles p ON p.user_id=u.id WHERE u.username=$1 OR u.id=$1`, [handle])).rows[0]
     if (!user) throw new HttpError(404, 'Профиль не найден')
     const stats = (await query(`SELECT (SELECT COUNT(*)::int FROM ratings WHERE user_id=$1) AS rated,
@@ -134,16 +141,16 @@ export function createApp(auth) {
         WHERE list.user_id=$1 ORDER BY list.${order} DESC,t.id DESC LIMIT 24 OFFSET $2`, [user.id, (current - 1) * 24])).rows
     }
     const total = stats[tab === 'ratings' ? 'rated' : tab]
-    res.json({ user, stats, items, tab, page: current, pages: Math.ceil(total / 24), own: user.id === req.user?.id })
+    res.json({ user, stats, items: await localizeTitles(items, req.locale), tab, page: current, pages: Math.ceil(total / 24), own: user.id === req.user?.id })
   })
   app.get('/api/titles/:id/discussion', async (req, res) => {
     const titleId = id(req.params.id), current = page(req.query.page), clean = req.query.filter === 'clean'
     const table = req.query.type === 'reviews' ? 'reviews' : 'comments'
     const count = (await query(`SELECT COUNT(*)::int AS total FROM ${table} WHERE title_id=$1 AND (NOT $2::boolean OR NOT spoiler)`, [titleId, clean])).rows[0].total
-    const items = (await query(`SELECT c.*,u.name,COALESCE(u.username,u.id) AS username,
+    const items = (await query(`SELECT c.*,u.name,COALESCE(u.username,u.id) AS username,COALESCE(p.avatar_color,'lime') AS avatar_color,
       (SELECT score FROM ratings WHERE user_id=c.user_id AND title_id=c.title_id) AS user_score,
       ${table === 'comments' ? "CASE WHEN c.parent_id IS NOT NULL THEN (SELECT pu.name FROM comments pc JOIN \"user\" pu ON pu.id=pc.user_id WHERE pc.id=c.parent_id) ELSE NULL END" : 'NULL'} AS reply_to
-      FROM ${table} c JOIN "user" u ON u.id=c.user_id WHERE c.title_id=$1 AND (NOT $2::boolean OR NOT c.spoiler)
+      FROM ${table} c JOIN "user" u ON u.id=c.user_id LEFT JOIN profiles p ON p.user_id=u.id WHERE c.title_id=$1 AND (NOT $2::boolean OR NOT c.spoiler)
       ORDER BY c.id DESC LIMIT 20 OFFSET $3`, [titleId, clean, (current - 1) * 20])).rows.map((row) => ({ ...spoilerContent(row), own: row.user_id === req.user?.id }))
     res.json({ items, total: count, page: current, pages: Math.ceil(count / 20) })
   })

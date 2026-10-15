@@ -349,7 +349,7 @@ img {
 }
 .hero {
   position:relative;
-  min-height:540px;
+  min-height:420px;
   margin-top:28px;
   border-radius:18px;
   overflow:hidden;
@@ -374,7 +374,7 @@ img {
 .hero-content {
   position:relative;
   z-index:2;
-  padding:48px 52px;
+  padding:42px 48px;
   width:65%
 }
 .hero-kicker {
@@ -1839,7 +1839,7 @@ img {
     max-width:1320px
   }
   .hero {
-    min-height:580px
+    min-height:460px
   }
   .hero h1 {
     font-size:72px
@@ -1935,7 +1935,7 @@ img {
     width:75%
   }
   .hero {
-    min-height:495px
+    min-height:400px
   }
   .hero-feature {
     max-width:170px;
@@ -2090,7 +2090,7 @@ img {
   }
   .hero {
     margin-top:20px;
-    min-height:470px
+    min-height:365px
   }
   .hero-content {
     width:100%;
@@ -2353,7 +2353,7 @@ img {
     font-size:14px
   }
   .hero {
-    min-height:445px;
+    min-height:345px;
     border-radius:12px;
     margin-top:16px
   }
@@ -2925,7 +2925,7 @@ img {
     font-size:9px
   }
   .hero {
-    min-height:425px
+    min-height:325px
   }
   .hero-feature {
     bottom:19px;
@@ -2990,4 +2990,48 @@ img {
     animation-duration:.01ms!important;
     transition-duration:.01ms!important
   }
+}
+
+/* Profile preferences */
+.language-switch {
+  color:var(--muted); border:1px solid var(--line); border-radius:8px;
+  background:transparent; min-width:36px; min-height:36px; padding:6px;
+  font-family:inherit; font-size:11px; font-weight:600; cursor:pointer; flex-shrink:0
+}
+.language-switch:hover { color:var(--text); border-color:var(--accent) }
+.profile-actions { margin-left:auto; display:flex; align-items:center; gap:18px; flex-shrink:0 }
+.profile-actions .button { font-size:11px; min-height:38px; padding:10px 14px }
+.profile-actions>.text-button { color:var(--muted); min-height:38px; font-size:12px }
+.settings-section { border-bottom:1px solid var(--line); padding:24px 0; margin:0 }
+.settings-section h3 { font-size:14px; margin-bottom:4px }
+.settings-section select {
+  width:100%; padding:12px; margin-top:8px; border:1px solid var(--line);
+  border-radius:9px; background:var(--bg); color:var(--text); font:inherit
+}
+.settings-section small { font-size:11px; color:var(--muted) }
+.avatar-picker { border:0; padding:0; margin:4px 0 }
+.avatar-picker legend { font-size:12px; margin-bottom:12px; color:var(--muted) }
+.avatar-picker>div { display:flex; gap:12px; flex-wrap:wrap }
+.color-choice { position:relative; cursor:pointer }
+.color-choice input { position:absolute; opacity:0; width:100%; height:100%; margin:0; cursor:pointer }
+.color-choice .avatar { width:36px; height:36px }
+.color-choice input:checked+span .avatar { outline:2px solid currentColor; outline-offset:3px }
+.color-choice input:focus-visible+span .avatar { outline:2px solid var(--text); outline-offset:3px }
+.avatar[data-color] { --avatar-tint:#d6ec89; background:color-mix(in srgb,var(--avatar-tint) 12%,transparent); color:var(--avatar-tint); border-color:color-mix(in srgb,var(--avatar-tint) 30%,transparent) }
+.avatar[data-color=violet] { --avatar-tint:#bfa6ef }
+.avatar[data-color=blue] { --avatar-tint:#8bbaf2 }
+.avatar[data-color=orange] { --avatar-tint:#eeb783 }
+.avatar[data-color=pink] { --avatar-tint:#e9a6c2 }
+.avatar[data-color=gray] { --avatar-tint:#bbc2c1 }
+.password-settings summary { cursor:pointer; font-size:13px; padding:4px 0 }
+.password-settings[open] summary { margin-bottom:20px }
+.settings-signout { display:block; margin:24px 0 0; min-height:40px; color:#dea6a0 }
+@media(max-width:760px) {
+  .header-inner { gap:12px }
+  .profile-actions { width:100%; margin-left:0; justify-content:space-between }
+  .language-switch { min-width:34px; padding:5px }
+}
+@media(max-width:560px) {
+  .header-inner { gap:8px }
+  .header-search { min-width:65px }
 }

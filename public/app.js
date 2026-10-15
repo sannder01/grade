@@ -1,4 +1,5 @@
 import { api, esc, icon, avatar, poster, kindName, toast, openModal, closeModal, empty, cards, pager } from './ui.js'
+import { t, html, language, setLanguage, applyShell } from './i18n.js'
 
 const main = document.querySelector('#main')
 const state = { me: null, generation: 0, title: null, discussion: null, onboarding: null }
@@ -13,19 +14,19 @@ async function refreshMe() {
   const data = await api('/api/me')
   state.me = data.user ? data : null
   document.querySelector('#account').innerHTML = state.me
-    ? `<a class="account-link" href="/u/${encodeURIComponent(data.user.username)}" aria-label="Мой профиль">${avatar(data.user.name)}<span>${esc(data.user.username)}</span></a><button class="text-button signout" data-action="signout" type="button">Выйти</button>`
-    : '<button class="button secondary login-button" data-action="login" type="button">Войти <span>↗</span></button>'
+    ? html`<a class="account-link" href="/u/${encodeURIComponent(data.user.username)}" aria-label="Мой профиль">${avatar(data.user.name, data.avatar_color)}<span>${esc(data.user.username)}</span></a><button class="text-button signout" data-action="signout" type="button">Выйти</button>`
+    : t('<button class="button secondary login-button" data-action="login" type="button">Войти <span>↗</span></button>')
 }
 function needUser() { if (state.me) return true; authModal(); return false }
 function authModal(mode = 'login') {
   const signup = mode === 'signup'
-  openModal(`<div class="auth-mark">✳</div><p class="eyebrow">ДОБРО ПОЖАЛОВАТЬ В GRADE</p><h2>${signup ? 'У каждой истории есть ваш взгляд.' : 'Рады видеть вас снова.'}</h2><p class="modal-subtitle">${signup ? 'Соберите свою историю просмотра. Без обязательных оценок.' : 'Войдите, чтобы продолжить свою коллекцию.'}</p>
+  openModal(html`<div class="auth-mark">✳</div><h2>${signup ? t('Регистрация') : t('Вход')}</h2>
     <form id="auth-form" class="stack-form">
-      ${signup ? '<label>Как вас зовут<input name="name" required minlength="2" maxlength="40" autocomplete="name" placeholder="Ваше имя"></label><label>Никнейм<input name="username" aria-label="Никнейм" aria-describedby="username-hint" required minlength="3" maxlength="24" pattern="[a-zA-Z0-9_]+" autocomplete="username" placeholder="Например, sannder"><small id="username-hint">Латинские буквы, цифры и _</small></label>' : ''}
-      <label>${signup ? 'Почта' : 'Почта или никнейм'}<input name="login" ${signup ? 'type="email"' : 'type="text"'} required maxlength="254" autocomplete="${signup ? 'email' : 'username'}" placeholder="${signup ? 'you@example.com' : 'you@example.com или никнейм'}"></label>
-      <label>Пароль<input name="password" type="password" required minlength="${signup ? 10 : 1}" maxlength="128" autocomplete="${signup ? 'new-password' : 'current-password'}" placeholder="${signup ? 'Не менее 10 символов' : 'Ваш пароль'}"></label>
-      <p class="form-error" role="alert" hidden></p><button class="button primary full" type="submit">${signup ? 'Создать аккаунт' : 'Войти'} ${icon('arrow')}</button>
-    </form><p class="auth-switch">${signup ? 'Уже есть аккаунт?' : 'Первый раз здесь?'} <button class="text-button" data-action="auth-switch" data-mode="${signup ? 'login' : 'signup'}">${signup ? 'Войти' : 'Зарегистрироваться'}</button></p>`)
+      ${signup ? t('<label>Как вас зовут<input name="name" required minlength="2" maxlength="40" autocomplete="name" placeholder="Ваше имя"></label><label>Никнейм<input name="username" aria-label="Никнейм" aria-describedby="username-hint" required minlength="3" maxlength="24" pattern="[a-zA-Z0-9_]+" autocomplete="username" placeholder="Например, sannder"><small id="username-hint">Латинские буквы, цифры и _</small></label>') : ''}
+      <label>${signup ? t('Почта') : t('Почта или никнейм')}<input name="login" ${signup ? 'type="email"' : 'type="text"'} required maxlength="254" autocomplete="${signup ? 'email' : 'username'}" placeholder="${signup ? 'you@example.com' : t('you@example.com или никнейм')}"></label>
+      <label>Пароль<input name="password" type="password" required minlength="${signup ? 10 : 1}" maxlength="128" autocomplete="${signup ? 'new-password' : 'current-password'}" placeholder="${signup ? t('Не менее 10 символов') : t('Ваш пароль')}"></label>
+      <p class="form-error" role="alert" hidden></p><button class="button primary full" type="submit">${signup ? t('Создать аккаунт') : t('Войти')} ${icon('arrow')}</button>
+    </form><p class="auth-switch">${signup ? t('Уже есть аккаунт?') : t('Нет аккаунта?')} <button class="text-button" data-action="auth-switch" data-mode="${signup ? 'login' : 'signup'}">${signup ? t('Войти') : t('Зарегистрироваться')}</button></p>`)
   document.querySelector('#auth-form').onsubmit = async (event) => {
     event.preventDefault()
     const form = event.currentTarget, button = form.querySelector('[type=submit]'), error = form.querySelector('.form-error'), values = Object.fromEntries(new FormData(form))
@@ -35,11 +36,11 @@ function authModal(mode = 'login') {
       else await api(`/api/auth/sign-in/${values.login.includes('@') ? 'email' : 'username'}`, { method: 'POST', body: { [values.login.includes('@') ? 'email' : 'username']: values.login.trim(), password: values.password } })
       await refreshMe()
       closeModal()
-      toast(signup ? 'Добро пожаловать в Grade!' : 'Вы вошли в аккаунт')
+      toast(signup ? t('Аккаунт создан') : t('Вы вошли в аккаунт'))
       if (signup) navigate('/start')
       else render()
     } catch (err) {
-      const messages = { USER_ALREADY_EXISTS:'Эта почта уже зарегистрирована', USERNAME_IS_ALREADY_TAKEN:'Этот никнейм уже занят', INVALID_EMAIL_OR_PASSWORD:'Неверная почта или пароль', INVALID_USERNAME_OR_PASSWORD:'Неверный никнейм или пароль', INVALID_USERNAME:'Проверьте никнейм: только латиница, цифры и _' }
+      const messages = { USER_ALREADY_EXISTS:t('Эта почта уже зарегистрирована'), USERNAME_IS_ALREADY_TAKEN:t('Этот никнейм уже занят'), INVALID_EMAIL_OR_PASSWORD:t('Неверная почта или пароль'), INVALID_USERNAME_OR_PASSWORD:t('Неверный никнейм или пароль'), INVALID_USERNAME:t('Проверьте никнейм: только латиница, цифры и _') }
       error.textContent = messages[err.code] || err.message
       error.hidden = false
     } finally { button.disabled = false }
@@ -49,7 +50,7 @@ function authModal(mode = 'login') {
 async function render() {
   const generation = ++state.generation
   const path = location.pathname
-  main.innerHTML = '<div class="loading" role="status"><span class="loader"></span>Находим вашу историю…</div>'
+  main.innerHTML = t('<div class="loading" role="status"><span class="loader"></span>Загрузка</div>')
   const nav = path === '/' ? 'home' : path === '/catalog' || path.startsWith('/title/') ? 'catalog' : params().get('tab') || 'ratings'
   document.querySelectorAll('[data-nav]').forEach((link) => { link.classList.toggle('active', link.dataset.nav === nav) })
   try {
@@ -64,31 +65,29 @@ async function render() {
       } else content = await profilePage(decodeURIComponent(path.slice(3)))
     } else if (path === '/start') content = state.me ? await onboardingPage() : loginRequired()
     else if (path === '/about') content = aboutPage()
-    else content = empty('Эта история ещё не найдена', 'Возможно, ссылка изменилась. В каталоге есть что посмотреть.')
+    else content = empty(t('Страница не найдена'), t('Вернитесь в каталог'))
     if (generation !== state.generation) return
     main.innerHTML = content
     bindPage()
-    document.title = path.startsWith('/title/') && state.title ? `${state.title.name} — Grade` : 'Grade — истории, которые остаются'
+    document.title = path.startsWith('/title/') && state.title ? `${state.title.name} — Grade` : t('Grade — оценки аниме, фильмов и сериалов')
     const search = params().get('q') || ''
     document.querySelector('#search').value = search
   } catch (error) {
     if (generation !== state.generation) return
-    main.innerHTML = `<section class="container error-page" role="alert"><p class="eyebrow">НЕБОЛЬШОЙ АНТРАКТ</p><h1>Не удалось открыть страницу</h1><p>${esc(error.message)}</p><button class="button primary" data-action="retry">Попробовать снова</button></section>`
+    main.innerHTML = html`<section class="container error-page" role="alert"><h1>Не удалось открыть страницу</h1><p>${esc(error.message)}</p><button class="button primary" data-action="retry">Повторить</button></section>`
   }
 }
-const loginRequired = () => `<div class="container">${empty('Ваша коллекция начинается здесь', 'Войдите в аккаунт, чтобы видеть свои оценки и просмотренное.')}<div class="center-action"><button class="button primary" data-action="login">Войти или зарегистрироваться</button></div></div>`
+const loginRequired = () => html`<div class="container">${empty(t('Войдите в аккаунт'), t('Здесь будут ваши оценки и просмотренное'))}<div class="center-action"><button class="button primary" data-action="login">Войти</button></div></div>`
 
 async function homePage() {
   const result = await api('/api/catalog?sort=popular')
   const featured = result.items[0]
-  if (!featured) return empty('Скоро здесь начнутся истории', 'Каталог пока пуст. Загляните немного позже.')
-  return `<section class="hero container"><div class="hero-backdrop" style="background-image:url('${esc(featured.backdrop)}')"></div><div class="hero-content"><div class="hero-kicker"><span class="live-dot"></span> ВАШ СЛЕД В МИРЕ ИСТОРИЙ</div><h1>Смотреть.<br>Чувствовать.<br><span>Запоминать.</span></h1><p>Аниме, кино и сериалы в одном месте.<br>Собирайте просмотренное. Делитесь своим взглядом.</p><div class="hero-actions"><a href="${state.me ? '/start' : '/catalog'}" class="button primary">${state.me ? 'Вспомнить просмотренное' : 'Найти свою историю'} ${icon('arrow')}</a><span>В вашем ритме.<br>С вашим вкусом.</span></div></div><a href="/title/${featured.id}" class="hero-feature"><span class="eyebrow">СЕГОДНЯ В ФОКУСЕ</span><strong>${esc(featured.name)}</strong><span>${featured.year} · ${kindName(featured.kind)} ${icon('arrow')}</span></a><div class="hero-index"><span>01</span> / ИСТОРИИ БЕЗ ГРАНИЦ</div></section>
+  if (!featured) return empty(t('Каталог пуст'), t('Загляните позже'))
+  return html`<section class="hero container"><div class="hero-backdrop" style="background-image:url('${esc(featured.backdrop)}')"></div><div class="hero-content"><h1>Ваши<br><span>оценки</span></h1><p>Аниме, фильмы и сериалы</p><div class="hero-actions"><a href="/catalog" class="button primary">Каталог ${icon('arrow')}</a><a href="/start" class="text-link">Просмотренное</a></div></div><a href="/title/${featured.id}" class="hero-feature"><strong>${esc(featured.name)}</strong><span>${featured.year} · ${kindName(featured.kind)} ${icon('arrow')}</span></a></section>
     <div class="container home-body">
-    ${state.me && !state.me.onboarding_done ? '<a class="onboarding-banner" href="/start"><span>✳</span><div><strong>Начнём со знакомого?</strong><p>Отметьте, что уже смотрели. Оценить можно потом.</p></div>'+icon('arrow')+'</a>' : ''}
-    <section class="catalog-section"><div class="section-heading"><div><p class="eyebrow">ТЕ САМЫЕ ИСТОРИИ</p><h2>С чего начнём<span class="accent">?</span></h2></div><a class="text-link" href="/catalog">Весь каталог ${icon('arrow')}</a></div><div class="category-pills"><a class="active" href="/catalog">Всё вместе</a><a href="/catalog?kind=anime">✧ Аниме</a><a href="/catalog?kind=movie">${icon('film')} Фильмы</a><a href="/catalog?kind=series">▤ Сериалы</a></div>${cards(result.items.slice(0, 6))}</section>
-    <section class="memory-section"><div><p class="eyebrow">КОЛЛЕКЦИЯ, КОТОРАЯ РАСТЁТ ВМЕСТЕ С ВАМИ</p><h2>Вы это точно<br><span>смотрели.</span></h2><p>Иногда сложно вспомнить всё.<br>Начните с известных историй — просто «смотрел» или «не смотрел».</p><a class="button secondary" href="/start">Собрать просмотренное ${icon('arrow')}</a><span class="memory-footnote">Без оценок и обязательств.</span></div><div class="memory-posters">${result.items.slice(6,9).map((item, i) => `<a href="/title/${item.id}" class="memory-poster memory-${i}">${poster(item)}</a>`).join('')}<span class="memory-note">это часть<br>вашей истории ↗</span></div></section>
-    <section class="catalog-section"><div class="section-heading"><div><p class="eyebrow">ПО ТУ СТОРОНУ ЭКРАНА</p><h2>Миры аниме<span class="accent">.</span></h2></div><a href="/catalog?kind=anime" class="text-link">Больше аниме ${icon('arrow')}</a></div>${cards(result.items.filter((item) => item.kind === 'anime').slice(0,6))}</section>
-    <section class="principles"><article><span>01</span><h3>Смотрел — уже достаточно</h3><p>Храните просмотренное без необходимости ставить оценку.</p></article><article><span>02</span><h3>Ваши оценки — ваш вкус</h3><p>Отдельная коллекция оценок в публичном профиле.</p></article><article><span>03</span><h3>Обсуждения без сюрпризов</h3><p>Спойлеры раскрываются только тогда, когда вы готовы.</p></article></section>
+    ${state.me && !state.me.onboarding_done ? t('<a class="onboarding-banner" href="/start"><span>✳</span><div><strong>Просмотренное</strong><p>Добавьте знакомые тайтлы</p></div>')+icon('arrow')+'</a>' : ''}
+    <section class="catalog-section"><div class="section-heading"><h2>Популярное</h2><a class="text-link" href="/catalog">Каталог ${icon('arrow')}</a></div><div class="category-pills"><a class="active" href="/catalog">Всё</a><a href="/catalog?kind=anime">Аниме</a><a href="/catalog?kind=movie">Фильмы</a><a href="/catalog?kind=series">Сериалы</a></div>${cards(result.items.slice(0, 6))}</section>
+    <section class="catalog-section"><div class="section-heading"><h2>Аниме</h2><a href="/catalog?kind=anime" class="text-link">Все аниме ${icon('arrow')}</a></div>${cards(result.items.filter((item) => item.kind === 'anime').slice(0,6))}</section>
     </div>`
 }
 async function catalogPage() {
@@ -101,27 +100,27 @@ async function catalogPage() {
       external = data.items.filter(item => !result.items.some(local => local.source === 'tmdb' && local.external_id === item.external_id))
     } catch (error) { externalError = error.message }
   }
-  return `<div class="container page"><header class="page-heading"><div><p class="eyebrow">ЧТО ПОСМОТРИМ?</p><h1>${search ? `Поиск: «${esc(search)}»` : 'Ваша следующая история<span class="accent">.</span>'}</h1><p>${search ? result.externalSearch ? 'Ищем в Grade и большом каталоге аниме, фильмов и сериалов.' : `Найдено тайтлов: ${result.total}` : 'Знакомое и ещё не открытое. Выбирайте по настроению.'}</p></div><span class="catalog-count">${search ? result.items.length + external.length : result.total} <small>${search ? 'показано' : 'тайтлов'}</small></span></header>
-    <div class="catalog-toolbar"><nav class="category-pills" aria-label="Тип тайтла">${[['','Всё вместе'],['anime','Аниме'],['movie','Фильмы'],['series','Сериалы']].map(([value,label]) => `<a class="${kind === value ? 'active' : ''}" href="${esc(urlFor({kind:value,q:search,sort}))}">${label}</a>`).join('')}</nav><label class="sort-label">Сначала<select id="catalog-sort"><option value="popular" ${sort === 'popular' ? 'selected' : ''}>Популярное</option><option value="rating" ${sort === 'rating' ? 'selected' : ''}>Высокие оценки Grade</option><option value="new" ${sort === 'new' ? 'selected' : ''}>Новые по году</option></select></label></div>
-    ${result.items.length ? cards(result.items) : external.length ? '' : empty('Пока ничего не нашлось', 'Попробуйте другое название, оригинальное имя или жанр.')}
+  return html`<div class="container page"><header class="page-heading"><h1>${search ? html`Поиск: «${esc(search)}»` : t('Каталог')}</h1><span class="catalog-count">${search ? result.items.length + external.length : result.total} <small>${search ? t('показано') : t('тайтлов')}</small></span></header>
+    <div class="catalog-toolbar"><nav class="category-pills" aria-label="Тип тайтла">${[['',t('Всё')],['anime',t('Аниме')],['movie',t('Фильмы')],['series',t('Сериалы')]].map(([value,label]) => `<a class="${kind === value ? 'active' : ''}" href="${esc(urlFor({kind:value,q:search,sort}))}">${label}</a>`).join('')}</nav><label class="sort-label">Сначала<select id="catalog-sort"><option value="popular" ${sort === 'popular' ? 'selected' : ''}>Популярное</option><option value="rating" ${sort === 'rating' ? 'selected' : ''}>По оценкам</option><option value="new" ${sort === 'new' ? 'selected' : ''}>По году</option></select></label></div>
+    ${result.items.length ? cards(result.items) : external.length ? '' : empty(t('Ничего не найдено'), t('Попробуйте другое название'))}
     ${pager(result.page, result.pages, (page) => urlFor({kind,q:search,sort,page}))}
-    ${external.length ? `<section class="external-search" aria-label="Внешний каталог"><p>Из большого каталога · TMDB</p><div class="external-grid">${external.map(item => `<button type="button" class="external-item" data-action="import-title" data-external-id="${esc(item.external_id)}" aria-label="Открыть ${esc(item.name)}">${poster(item)}<span><strong>${esc(item.name)}</strong><small>${item.year || '—'} · ${kindName(item.kind)}</small></span>${icon('arrow')}</button>`).join('')}</div></section>` : ''}
-    ${externalError ? `<p class="catalog-source-note" role="status">${esc(externalError)} Поиск по Grade продолжает работать.</p>` : ''}
-    ${search ? '' : '<p class="catalog-source-note">Стартовая подборка известных историй. Оценки Grade появляются только от реальных пользователей.</p>'}</div>`
+    ${external.length ? html`<section class="external-search" aria-label="Внешний каталог"><p>Результаты TMDB</p><div class="external-grid">${external.map(item => html`<button type="button" class="external-item" data-action="import-title" data-external-id="${esc(item.external_id)}" aria-label="Открыть ${esc(item.name)}">${poster(item)}<span><strong>${esc(item.name)}</strong><small>${item.year || '—'} · ${kindName(item.kind)}</small></span>${icon('arrow')}</button>`).join('')}</div></section>` : ''}
+    ${externalError ? html`<p class="catalog-source-note" role="status">${esc(externalError)} Поиск по Grade продолжает работать.</p>` : ''}
+    </div>`
 }
 
 async function profilePage(username) {
   const p = params(), data = await api(`/api/profiles/${encodeURIComponent(username)}?${new URLSearchParams({ tab:p.get('tab') || 'ratings',page:p.get('page') || '1' })}`)
   const { user, stats, own, tab } = data
-  return `<div class="container page profile-page"><header class="profile-heading"><div class="profile-avatar">${avatar(user.name)}</div><div class="profile-identity"><p class="eyebrow">${own ? 'ВАШЕ ПРОСТРАНСТВО' : 'ПРОФИЛЬ ЗРИТЕЛЯ'}</p><h1>${esc(user.name)}</h1><span class="profile-handle">@${esc(user.username)}</span>${user.bio ? `<p class="profile-bio">${esc(user.bio)}</p>` : '<p class="profile-bio muted">Истории говорят за себя.</p>'}</div>${own ? '<button class="button secondary profile-edit" data-action="edit-profile">'+icon('settings')+' Редактировать</button>' : ''}</header>
+  return html`<div class="container page profile-page"><header class="profile-heading"><div class="profile-avatar">${avatar(user.name, user.avatar_color)}</div><div class="profile-identity"><h1>${esc(user.name)}</h1><span class="profile-handle">@${esc(user.username)}</span>${user.bio ? `<p class="profile-bio">${esc(user.bio)}</p>` : ''}</div>${own ? '<div class="profile-actions"><button class="button secondary" data-action="edit-profile">'+icon('settings')+t(' Редактировать</button><button class="text-button" data-action="signout">Выйти</button></div>') : ''}</header>
     <div class="profile-stats"><div><strong>${stats.watched}</strong><span>просмотрено</span></div><div><strong>${stats.rated}</strong><span>оценок</span></div><div><strong>${stats.average ?? '—'}</strong><span>средняя оценка</span></div><div><strong>${stats.reviews}</strong><span>отзывов</span></div></div>
-    <div class="profile-tabs" role="navigation" aria-label="Коллекции профиля">${[['ratings','Оценки',stats.rated],['watched','Смотрел',stats.watched],['reviews','Отзывы',stats.reviews]].map(([value,label,count]) => `<a class="${tab === value ? 'active' : ''}" href="/u/${encodeURIComponent(user.username)}?tab=${value}">${label}<span>${count}</span></a>`).join('')}</div>
-    ${tab === 'watched' ? '<p class="collection-hint">Просмотренное сохраняется независимо от оценок. '+(own ? 'Оценить любой тайтл можно на его странице.' : '')+'</p>' : ''}
-    ${data.items.length ? tab === 'reviews' ? `<div class="profile-reviews">${data.items.map((item) => `<article class="profile-review"><a href="/title/${item.id}">${poster(item)}</a><div><a class="review-title" href="/title/${item.id}">${esc(item.name)}</a><span class="review-date">${item.year} · ${kindName(item.kind)}${item.my_score ? ` · Моя оценка: ${item.my_score}/10` : ''}</span>${item.spoiler ? spoilerPlaceholder(item.review_id,'reviews') : `<p class="user-content">${esc(item.content)}</p>`}<a href="/title/${item.id}" class="text-link">К обсуждению ${icon('arrow')}</a></div></article>`).join('')}</div>` : cards(data.items,own) : empty(tab === 'ratings' ? 'Оценки ещё впереди' : tab === 'watched' ? 'Каждая коллекция с чего-то начинается' : 'Слов пока нет', own ? tab === 'watched' ? 'Отмечайте просмотренное в каталоге или начните с подборки знакомых историй.' : tab === 'ratings' ? 'Откройте тайтл и поставьте свою оценку от 1 до 10.' : 'Оставьте первый отзыв на странице аниме, фильма или сериала.' : 'В этой коллекции пока нет записей.', tab === 'watched' && own ? '/start' : '/catalog', tab === 'watched' && own ? 'Вспомнить просмотренное' : 'Открыть каталог')}
+    <div class="profile-tabs" role="navigation" aria-label="Коллекции профиля">${[['ratings',t('Оценки'),stats.rated],['watched',t('Смотрел'),stats.watched],['reviews',t('Отзывы'),stats.reviews]].map(([value,label,count]) => `<a class="${tab === value ? 'active' : ''}" href="/u/${encodeURIComponent(user.username)}?tab=${value}">${label}<span>${count}</span></a>`).join('')}</div>
+    ${tab === 'watched' && own ? t('<p class="collection-hint">Оценку можно добавить позже</p>') : ''}
+    ${data.items.length ? tab === 'reviews' ? `<div class="profile-reviews">${data.items.map((item) => html`<article class="profile-review"><a href="/title/${item.id}">${poster(item)}</a><div><a class="review-title" href="/title/${item.id}">${esc(item.name)}</a><span class="review-date">${item.year} · ${kindName(item.kind)}${item.my_score ? html` · Моя оценка: ${item.my_score}/10` : ''}</span>${item.spoiler ? spoilerPlaceholder(item.review_id,'reviews') : `<p class="user-content">${esc(item.content)}</p>`}<a href="/title/${item.id}" class="text-link">К обсуждению ${icon('arrow')}</a></div></article>`).join('')}</div>` : cards(data.items,own) : empty(tab === 'ratings' ? t('Нет оценок') : tab === 'watched' ? t('Пока пусто') : t('Нет отзывов'), own ? tab === 'watched' ? t('Отметьте, что уже смотрели') : tab === 'ratings' ? t('Выберите тайтл в каталоге') : t('Напишите отзыв на странице тайтла') : '', tab === 'watched' && own ? '/start' : '/catalog', tab === 'watched' && own ? t('Добавить') : t('Каталог'))}
     ${pager(data.page,data.pages,(page) => `/u/${encodeURIComponent(user.username)}?${new URLSearchParams({tab,page})}`)}</div>`
 }
 function spoilerPlaceholder(id, type) {
-  return `<div class="spoiler-placeholder" data-spoiler="${type}-${id}">${icon('eye')}<span>Здесь может быть спойлер</span><button class="text-button" data-action="reveal" data-type="${type}" data-id="${id}">Показать</button></div>`
+  return html`<div class="spoiler-placeholder" data-spoiler="${type}-${id}">${icon('eye')}<span>Спойлер</span><button class="text-button" data-action="reveal" data-type="${type}" data-id="${id}">Показать</button></div>`
 }
 async function onboardingPage() {
   if (!state.onboarding) {
@@ -129,13 +128,13 @@ async function onboardingPage() {
     state.onboarding = { items: result.items, index: 0, added: 0 }
   }
   const { items, index, added } = state.onboarding, item = items[index]
-  if (!item) return `<div class="container page">${empty('Начало вашей коллекции положено', `Отмечено в этой подборке: ${added}. Оценки можно добавить в любой момент.`, '/me?tab=watched','К просмотренному')}<div class="center-action"><button class="button secondary" data-action="onboard-finish">Завершить подборку</button></div></div>`
-  return `<div class="container onboarding-page"><header><p class="eyebrow">НАЧНЁМ СО ЗНАКОМОГО</p><h1>Уже смотрели<span class="accent">?</span></h1><p>Добавляйте в просмотренное. Ставить оценку сейчас не нужно.</p></header><div class="onboard-progress"><span style="width:${Math.round(index / items.length * 100)}%"></span></div><div class="onboard-counter"><span>${String(index + 1).padStart(2,'0')} / ${items.length}</span><button class="text-button" data-action="onboard-finish">Закончить подборку</button></div>
-    <article class="onboard-card"><a class="onboard-poster" href="/title/${item.id}">${poster(item,false)}</a><div class="onboard-info"><span class="kind-label">${kindName(item.kind)} · ${item.year}</span><h2>${esc(item.name)}</h2><p class="original-name">${esc(item.original_name)}</p><p>${esc(item.description)}</p><div class="genre-tags">${item.genres.map((genre) => `<span>${esc(genre)}</span>`).join('')}</div><div class="onboard-actions"><button class="button primary" data-action="onboard-yes">${icon('check')} Смотрел</button><button class="button secondary" data-action="onboard-no">Не смотрел</button></div><button class="text-button onboard-skip" data-action="onboard-skip">Пропустить →</button><p class="small muted">${added ? `Добавлено в этой подборке: ${added}` : 'Только вы решаете, что будет в вашей коллекции.'}</p></div></article></div>`
+  if (!item) return html`<div class="container page">${empty(t('Готово'), html`Добавлено: ${added}`, '/me?tab=watched',t('Просмотренное'))}<div class="center-action"><button class="button secondary" data-action="onboard-finish">Завершить подборку</button></div></div>`
+  return html`<div class="container onboarding-page"><header><h1>Уже смотрели?</h1><p>Отмечайте без оценки</p></header><div class="onboard-progress"><span style="width:${Math.round(index / items.length * 100)}%"></span></div><div class="onboard-counter"><span>${String(index + 1).padStart(2,'0')} / ${items.length}</span><button class="text-button" data-action="onboard-finish">Закончить подборку</button></div>
+    <article class="onboard-card"><a class="onboard-poster" href="/title/${item.id}">${poster(item,false)}</a><div class="onboard-info"><span class="kind-label">${kindName(item.kind)} · ${item.year}</span><h2>${esc(item.name)}</h2><p class="original-name">${esc(item.original_name)}</p><p>${esc(item.description)}</p><div class="genre-tags">${item.genres.map((genre) => `<span>${esc(genre)}</span>`).join('')}</div><div class="onboard-actions"><button class="button primary" data-action="onboard-yes">${icon('check')} Смотрел</button><button class="button secondary" data-action="onboard-no">Не смотрел</button></div><button class="text-button onboard-skip" data-action="onboard-skip">Пропустить →</button><p class="small muted">Добавлено: ${added}</p></div></article></div>`
 }
 
 function aboutPage() {
-  return `<div class="container page about-page"><p class="eyebrow">О ПРОЕКТЕ</p><h1>У каждого свой Grade<span class="accent">.</span></h1><p>Здесь можно собирать просмотренное, оценивать аниме, фильмы и сериалы и делиться впечатлениями. Оценки и просмотренное — разные коллекции: одно не обязывает к другому.</p><h2>Каталог и оценки</h2><p>Сервис начинает работу с подборкой известных тайтлов. «Популярное» в этой подборке — порядок знакомства с каталогом, а не рейтинг текущих просмотров. Оценки и их количество считаются только из голосов пользователей Grade. Мы не создаём вымышленные отзывы и оценки.</p><p>Поиск по TMDB за пределами подборки появляется после подключения внешнего каталога владельцем сервиса. У постеров и сведений о произведениях свои правообладатели. This product uses the TMDB API but is not endorsed or certified by TMDB.</p><h2>Спойлеры и обсуждения</h2><p>Отмечайте спойлеры перед публикацией. Скрытый текст загружается только после нажатия «Показать». Фильтр «Без спойлеров» исключает такие сообщения из ленты. В ответах на комментарий со спойлером отметка наследуется.</p><h2>Публичный профиль</h2><p>Имя, никнейм, описание, оценки, просмотренное и отзывы видны посетителям. Почта не отображается в публичном профиле. Удалить свою оценку или публикацию можно на странице произведения.</p><a class="button primary" href="/catalog">К историям ${icon('arrow')}</a></div>`
+  return html`<div class="container page about-page"><h1>О Grade</h1><p>Оценки, отзывы и просмотренное для аниме, фильмов и сериалов. Списки «Смотрел» и «Оценки» независимы.</p><h2>Каталог</h2><p>На главной — подборка известных тайтлов. Поиск также использует TMDB. Рейтинг Grade складывается из оценок пользователей.</p><p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p><h2>Спойлеры</h2><p>Отметьте спойлер перед публикацией. Текст раскроется только по кнопке «Показать». Фильтр «Без спойлеров» убирает такие записи и ответы на них.</p><h2>Профиль</h2><p>Оценки, просмотренное и отзывы видны всем. Почта остаётся скрытой.</p><a class="button primary" href="/catalog">Каталог ${icon('arrow')}</a></div>`
 }
 
 function savedSpoilerFilter() {
@@ -149,22 +148,22 @@ async function titlePage(titleId) {
     api(`/api/titles/${titleId}`), api(`/api/titles/${titleId}/discussion?${new URLSearchParams({type,filter,page:current})}`),
   ])
   if (location.pathname === `/title/${titleId}`) state.title = item
-  return `<div class="container title-page"><a href="/catalog" class="back-link">← В каталог</a><div class="title-layout"><aside class="title-sidebar"><div class="detail-poster">${poster(item,false)}</div><button class="button ${item.watched ? 'selected' : 'primary'} full" data-action="watch" data-id="${item.id}" data-watched="${item.watched ? 'true' : 'false'}">${icon(item.watched ? 'check' : 'plus')} ${item.watched ? 'Уже в просмотренном' : 'Смотрел'}</button><p class="small muted center">Можно сохранить без оценки.</p></aside>
+  return html`<div class="container title-page"><a href="/catalog" class="back-link">← В каталог</a><div class="title-layout"><aside class="title-sidebar"><div class="detail-poster">${poster(item,false)}</div><button class="button ${item.watched ? 'selected' : 'primary'} full" data-action="watch" data-id="${item.id}" data-watched="${item.watched ? 'true' : 'false'}">${icon(item.watched ? 'check' : 'plus')} ${item.watched ? t('Уже в просмотренном') : t('Смотрел')}</button><p class="small muted center">Без оценки</p></aside>
     <div class="title-info"><div class="title-kicker"><span class="kind-label">${kindName(item.kind)}</span><span>${item.year || ''}</span><span>${esc(item.runtime)}</span></div><h1>${esc(item.name)}</h1><p class="original-name">${esc(item.original_name)}</p><div class="genre-tags">${item.genres.map((genre) => `<a href="/catalog?q=${encodeURIComponent(genre)}">${esc(genre)}</a>`).join('')}</div>
-    <div class="title-overview"><div class="overall-score"><strong>${item.average ?? '—'}</strong><div>${icon('star')}<span>${item.votes ? `${item.votes} оценок Grade` : 'Пока нет оценок'}</span></div></div><p>Хорошая история?<br><span>Решать вам.</span></p></div>
-    <p class="title-description">${esc(item.description || 'Описание пока не добавлено.')}</p><section class="rating-section"><div><h2>Ваша оценка</h2><span>${item.my_score ? `${item.my_score} из 10` : 'Какое впечатление осталось?'}</span></div><div class="rating-scale" role="group" aria-label="Оценка от 1 до 10">${Array.from({length:10},(_,i) => `<button type="button" aria-label="Оценить на ${i+1}" aria-pressed="${item.my_score === i+1}" data-action="rate" data-id="${item.id}" data-score="${i+1}" class="${item.my_score === i+1 ? 'picked' : ''}">${i+1}</button>`).join('')}</div><div class="rating-legend"><span>Совсем не моё</span><span>В самое сердце</span></div>${item.my_score ? `<button class="text-button remove-rating" data-action="remove-rating" data-id="${item.id}">Удалить мою оценку</button>` : ''}</section>
-    <section class="discussion"><div class="discussion-header"><h2>После титров<span class="accent">.</span></h2><button class="button secondary" data-action="review" data-id="${item.id}">${icon('plus')} Написать отзыв</button></div>
+    <div class="title-overview"><div class="overall-score"><strong>${item.average ?? '—'}</strong><div>${icon('star')}<span>${item.votes ? html`${item.votes} оценок Grade` : t('Пока нет оценок')}</span></div></div></div>
+    <p class="title-description">${esc(item.description || t('Описание пока не добавлено.'))}</p><section class="rating-section"><div><h2>Ваша оценка</h2><span>${item.my_score ? html`${item.my_score} из 10` : t('Без оценки')}</span></div><div class="rating-scale" role="group" aria-label="Оценка от 1 до 10">${Array.from({length:10},(_,i) => html`<button type="button" aria-label="Оценить на ${i+1}" aria-pressed="${item.my_score === i+1}" data-action="rate" data-id="${item.id}" data-score="${i+1}" class="${item.my_score === i+1 ? 'picked' : ''}">${i+1}</button>`).join('')}</div>${item.my_score ? html`<button class="text-button remove-rating" data-action="remove-rating" data-id="${item.id}">Удалить мою оценку</button>` : ''}</section>
+    <section class="discussion"><div class="discussion-header"><h2>Обсуждение</h2><button class="button secondary" data-action="review" data-id="${item.id}">${icon('plus')} Написать отзыв</button></div>
     <div class="discussion-toolbar"><nav class="discussion-tabs" aria-label="Тип обсуждения"><a class="${type === 'reviews' ? 'active' : ''}" href="/title/${item.id}?type=reviews&filter=${filter}">Отзывы</a><a class="${type === 'comments' ? 'active' : ''}" href="/title/${item.id}?type=comments&filter=${filter}">Комментарии</a></nav><label class="spoiler-filter">${icon('eye')}<select id="spoiler-filter" aria-label="Фильтр спойлеров"><option value="all" ${filter === 'all' ? 'selected' : ''}>Спойлеры скрыты</option><option value="clean" ${filter === 'clean' ? 'selected' : ''}>Без спойлеров</option></select></label></div>
-    ${type === 'comments' ? `<form id="comment-form" class="comment-form"><label for="comment-text">${state.me ? 'Что думаете об этой истории?' : 'Войдите, чтобы присоединиться к разговору'}</label><div id="reply-context" hidden></div><textarea id="comment-text" name="content" required maxlength="2000" rows="3" placeholder="Обсудим? Только не забудьте отметить спойлеры…"></textarea><div><label class="checkbox-label"><input type="checkbox" name="spoiler"> Есть спойлеры</label><button class="button primary" type="submit">Отправить ${icon('arrow')}</button></div></form>` : ''}
-    <div class="discussion-items">${discussion.items.length ? discussion.items.map((row) => discussionItem(row,type)).join('') : `<div class="discussion-empty">${icon('chat')}<h3>${filter === 'clean' ? 'Пока нет записей без спойлеров' : type === 'reviews' ? 'Первое слово за вами' : 'Здесь начинается разговор'}</h3><p>${type === 'reviews' ? 'Поделитесь впечатлениями — без пересказа сюжета или с отметкой о спойлерах.' : 'Задайте вопрос или расскажите, что запомнилось.'}</p></div>`}</div>
+    ${type === 'comments' ? html`<form id="comment-form" class="comment-form"><label for="comment-text">${state.me ? t('Комментарий') : t('Войдите, чтобы оставить комментарий')}</label><div id="reply-context" hidden></div><textarea id="comment-text" name="content" required maxlength="2000" rows="3" placeholder="Ваш комментарий"></textarea><div><label class="checkbox-label"><input type="checkbox" name="spoiler"> Есть спойлеры</label><button class="button primary" type="submit">Отправить ${icon('arrow')}</button></div></form>` : ''}
+    <div class="discussion-items">${discussion.items.length ? discussion.items.map((row) => discussionItem(row,type)).join('') : `<div class="discussion-empty">${icon('chat')}<h3>${filter === 'clean' ? t('Нет записей без спойлеров') : type === 'reviews' ? t('Нет отзывов') : t('Нет комментариев')}</h3></div>`}</div>
     ${pager(discussion.page,discussion.pages,(page) => `/title/${item.id}?${new URLSearchParams({type,filter,page})}`)}</section></div></div></div>`
 }
 function discussionItem(row, type) {
-  const date = new Intl.DateTimeFormat('ru-RU',{day:'numeric',month:'short',year:'numeric'}).format(new Date(row.created_at))
-  return `<article class="discussion-item ${row.parent_id ? 'is-reply' : ''}"><div class="discussion-author"><a href="/u/${encodeURIComponent(row.username)}">${avatar(row.name)}</a><div><a href="/u/${encodeURIComponent(row.username)}">${esc(row.name)}</a><span>@${esc(row.username)} · ${date}</span></div>${row.user_score ? `<span class="author-score">${icon('star')} ${row.user_score}</span>` : ''}</div>
-    ${row.reply_to ? `<p class="reply-to">↳ В ответ ${esc(row.reply_to)}</p>` : ''}
+  const date = new Intl.DateTimeFormat(language() === 'en' ? 'en-US' : 'ru-RU',{day:'numeric',month:'short',year:'numeric'}).format(new Date(row.created_at)).replace(/\.(?=\s|$)/g,'')
+  return `<article class="discussion-item ${row.parent_id ? 'is-reply' : ''}"><div class="discussion-author"><a href="/u/${encodeURIComponent(row.username)}">${avatar(row.name, row.avatar_color)}</a><div><a href="/u/${encodeURIComponent(row.username)}">${esc(row.name)}</a><span>@${esc(row.username)} · ${date}</span></div>${row.user_score ? `<span class="author-score">${icon('star')} ${row.user_score}</span>` : ''}</div>
+    ${row.reply_to ? html`<p class="reply-to">↳ В ответ ${esc(row.reply_to)}</p>` : ''}
     ${row.spoiler ? spoilerPlaceholder(row.id,type) : `<p class="user-content">${esc(row.content)}</p>`}
-    <div class="discussion-item-actions">${type === 'comments' && !row.parent_id ? `<button class="text-button" data-action="reply" data-id="${row.id}" data-name="${esc(row.name)}" data-spoiler="${row.spoiler}">Ответить</button>` : ''}${row.own ? `${type === 'reviews' ? `<button class="text-button" data-action="review" data-id="${row.title_id}">Редактировать</button>` : ''}<button class="text-button muted" data-action="delete-post" data-id="${row.id}" data-type="${type}">Удалить</button>` : ''}</div></article>`
+    <div class="discussion-item-actions">${type === 'comments' && !row.parent_id ? html`<button class="text-button" data-action="reply" data-id="${row.id}" data-name="${esc(row.name)}" data-spoiler="${row.spoiler}">Ответить</button>` : ''}${row.own ? html`${type === 'reviews' ? html`<button class="text-button" data-action="review" data-id="${row.title_id}">Редактировать</button>` : ''}<button class="text-button muted" data-action="delete-post" data-id="${row.id}" data-type="${type}">Удалить</button>` : ''}</div></article>`
 }
 
 function bindPage() {
@@ -183,7 +182,7 @@ function bindPage() {
     button.disabled = true
     try {
       await api(`/api/titles/${location.pathname.split('/').pop()}/comments`, { method:'POST', body:{ content, spoiler:form.elements.spoiler.checked, parent_id:form.dataset.parent || null } })
-      toast('Комментарий опубликован')
+      toast(t('Комментарий опубликован'))
       render()
     } catch (error) { toast(error.message) }
     finally { button.disabled = false }
@@ -192,31 +191,55 @@ function bindPage() {
 async function reviewModal(titleId) {
   if (!needUser()) return
   const own = await api(`/api/titles/${titleId}/my-review`)
-  openModal(`<p class="eyebrow">ВАШ ВЗГЛЯД</p><h2>${own ? 'Вернуться к впечатлениям' : 'Что осталось после титров?'}</h2><p class="modal-subtitle">Один отзыв — одна история. Его можно редактировать.</p><form id="review-form" class="stack-form"><label>Отзыв<textarea name="content" rows="8" required minlength="20" maxlength="10000" placeholder="Что вам понравилось? Кому стоит посмотреть?">${esc(own?.content || '')}</textarea></label><label class="checkbox-label"><input type="checkbox" name="spoiler" ${own?.spoiler ? 'checked' : ''}>В отзыве есть спойлеры</label><p class="form-error" role="alert" hidden></p><button class="button primary" type="submit">${own ? 'Сохранить отзыв' : 'Опубликовать'} ${icon('arrow')}</button></form>`)
+  openModal(html`<h2>${own ? t('Редактировать отзыв') : t('Новый отзыв')}</h2><form id="review-form" class="stack-form"><label>Отзыв<textarea name="content" rows="8" required minlength="20" maxlength="10000" placeholder="Ваш отзыв">${esc(own?.content || '')}</textarea></label><label class="checkbox-label"><input type="checkbox" name="spoiler" ${own?.spoiler ? 'checked' : ''}>В отзыве есть спойлеры</label><p class="form-error" role="alert" hidden></p><button class="button primary" type="submit">${own ? t('Сохранить отзыв') : t('Опубликовать')} ${icon('arrow')}</button></form>`)
   document.querySelector('#review-form').onsubmit = async (event) => {
     event.preventDefault()
     const form = event.currentTarget, button = form.querySelector('[type=submit]'), error = form.querySelector('.form-error')
     button.disabled = true
     try {
       await api(`/api/titles/${titleId}/review`,{method:'PUT',body:{content:form.elements.content.value,spoiler:form.elements.spoiler.checked}})
-      closeModal(); toast('Отзыв сохранён'); navigate(`/title/${titleId}?type=reviews`)
+      closeModal(); toast(t('Отзыв сохранён')); navigate(`/title/${titleId}?type=reviews`)
     } catch (err) { error.textContent = err.message; error.hidden = false }
     finally { button.disabled = false }
   }
 }
 function editProfile() {
   if (!needUser()) return
-  openModal(`<p class="eyebrow">ЛИЧНОЕ</p><h2>Немного о вас.</h2><form id="profile-form" class="stack-form"><label>Имя<input name="name" required minlength="2" maxlength="40" value="${esc(state.me.user.name)}"></label><label>О себе<textarea name="bio" rows="4" maxlength="400" placeholder="Любимые жанры, режиссёры, уютные истории…">${esc(state.me.bio)}</textarea></label><p class="form-error" role="alert" hidden></p><button class="button primary" type="submit">Сохранить ${icon('check')}</button></form>`)
+  openModal(html`<h2>Настройки</h2><form id="profile-form" class="stack-form settings-section"><h3>Профиль</h3><label>Имя<input name="name" required minlength="2" maxlength="40" value="${esc(state.me.user.name)}"></label><label>О себе<textarea name="bio" rows="3" maxlength="400" placeholder="Любимые жанры и режиссёры">${esc(state.me.bio)}</textarea></label><fieldset class="avatar-picker"><legend>Цвет аватара</legend><div>${[['lime',t('Лайм')],['violet',t('Фиолетовый')],['blue',t('Синий')],['orange',t('Оранжевый')],['pink',t('Розовый')],['gray',t('Серый')]].map(([color,label]) => `<label class="color-choice" data-color="${color}"><input type="radio" name="avatar_color" value="${color}" aria-label="${label}" ${(state.me.avatar_color || 'lime') === color ? 'checked' : ''}><span>${avatar(state.me.user.name,color)}</span></label>`).join('')}</div></fieldset><p class="form-error" role="alert" hidden></p><button class="button primary" type="submit">Сохранить ${icon('check')}</button></form>
+    <form id="preferences-form" class="stack-form settings-section"><h3>Предпочтения</h3><label>Язык<select name="language"><option value="ru" ${language() === 'ru' ? 'selected' : ''}>Русский</option><option value="en" ${language() === 'en' ? 'selected' : ''}>English</option></select></label><label>Спойлеры<select name="spoilers"><option value="all" ${savedSpoilerFilter() === 'all' ? 'selected' : ''}>Спойлеры скрыты</option><option value="clean" ${savedSpoilerFilter() === 'clean' ? 'selected' : ''}>Без спойлеров</option></select></label><button class="button secondary" type="submit">Применить</button></form>
+    <details class="settings-section password-settings"><summary>Сменить пароль</summary><form id="password-form" class="stack-form"><label>Текущий пароль<input name="currentPassword" type="password" required maxlength="128" autocomplete="current-password"></label><label>Новый пароль<input name="newPassword" type="password" required minlength="10" maxlength="128" autocomplete="new-password" placeholder="Не менее 10 символов"></label><small>Другие сеансы будут завершены</small><p class="form-error" role="alert" hidden></p><button class="button secondary" type="submit">Обновить пароль</button></form></details><button class="text-button settings-signout" data-action="signout" type="button">Выйти из аккаунта</button>`)
   document.querySelector('#profile-form').onsubmit = async (event) => {
     event.preventDefault()
     const form = event.currentTarget, button = form.querySelector('[type=submit]'), error = form.querySelector('.form-error')
     button.disabled = true
     try {
-      await api('/api/me',{method:'PATCH',body:{name:form.elements.name.value,bio:form.elements.bio.value}})
-      await refreshMe(); closeModal(); toast('Профиль обновлён'); render()
+      await api('/api/me',{method:'PATCH',body:{name:form.elements.name.value,bio:form.elements.bio.value,avatar_color:form.elements.avatar_color.value}})
+      await refreshMe(); closeModal(); toast(t('Профиль обновлён')); render()
     } catch (err) { error.textContent = err.message; error.hidden = false }
     finally { button.disabled = false }
   }
+  document.querySelector('#preferences-form').onsubmit = async (event) => {
+    event.preventDefault()
+    const form = event.currentTarget
+    try { localStorage.setItem('grade:spoiler-filter',form.elements.spoilers.value) } catch { /* Optional preference */ }
+    await changeLanguage(form.elements.language.value)
+    toast(t('Настройки сохранены'))
+  }
+  document.querySelector('#password-form').onsubmit = async (event) => {
+    event.preventDefault()
+    const form = event.currentTarget, button = form.querySelector('[type=submit]'), error = form.querySelector('.form-error')
+    button.disabled = true; error.hidden = true
+    try {
+      await api('/api/auth/change-password',{method:'POST',body:{currentPassword:form.elements.currentPassword.value,newPassword:form.elements.newPassword.value,revokeOtherSessions:true}})
+      form.reset(); closeModal(); toast(t('Пароль обновлён'))
+    } catch (err) { error.textContent = err.message; error.hidden = false }
+    finally { button.disabled = false }
+  }
+}
+async function changeLanguage(value) {
+  setLanguage(value); applyShell(); closeModal(); state.onboarding = null
+  document.querySelector('#toast').hidden = true
+  await refreshMe(); await render()
 }
 
 document.addEventListener('click', async (event) => {
@@ -230,9 +253,10 @@ document.addEventListener('click', async (event) => {
       if (action === 'auth-switch') return authModal(button.dataset.mode)
       if (action === 'retry') return render()
       if (action === 'edit-profile') return editProfile()
+      if (action === 'language') return await changeLanguage(language() === 'ru' ? 'en' : 'ru')
       if (action === 'signout') {
         await api('/api/auth/sign-out',{method:'POST'})
-        state.onboarding = null
+        closeModal(); state.onboarding = null
         await refreshMe(); navigate('/'); return
       }
       if (action === 'watch') {
@@ -240,14 +264,14 @@ document.addEventListener('click', async (event) => {
         button.disabled = true
         const watched = button.dataset.watched !== 'true'
         await api(`/api/titles/${button.dataset.id}/watched`,{method:'PUT',body:{watched}})
-        toast(watched ? 'Добавлено в «Смотрел». Оценить можно позже.' : 'Удалено из просмотренного. Оценка сохранена.')
+        toast(watched ? t('Добавлено в просмотренное') : t('Удалено из просмотренного'))
         return render()
       }
       if (action === 'rate' || action === 'remove-rating') {
         if (!needUser()) return
         button.disabled = true
         await api(`/api/titles/${button.dataset.id}/rating`,{method:action === 'rate' ? 'PUT' : 'DELETE',body:action === 'rate' ? {score:Number(button.dataset.score)} : {}})
-        toast(action === 'rate' ? 'Ваша оценка сохранена' : 'Оценка удалена. Просмотренное сохранено.')
+        toast(action === 'rate' ? t('Ваша оценка сохранена') : t('Оценка удалена'))
         return render()
       }
       if (action === 'review') return await reviewModal(button.dataset.id)
@@ -264,7 +288,7 @@ document.addEventListener('click', async (event) => {
         form.dataset.parent = button.dataset.id
         form.elements.spoiler.checked = button.dataset.spoiler === 'true'
         form.elements.spoiler.disabled = button.dataset.spoiler === 'true'
-        context.innerHTML = `<span>Ответ ${esc(button.dataset.name)}</span><button class="text-button" data-action="cancel-reply" type="button">Отменить</button>`; context.hidden = false
+        context.innerHTML = html`<span>Ответ ${esc(button.dataset.name)}</span><button class="text-button" data-action="cancel-reply" type="button">Отменить</button>`; context.hidden = false
         form.scrollIntoView({behavior:'smooth',block:'center'}); form.elements.content.focus(); return
       }
       if (action === 'cancel-reply') {
@@ -273,10 +297,10 @@ document.addEventListener('click', async (event) => {
         document.querySelector('#reply-context').hidden = true; return
       }
       if (action === 'delete-post') {
-        if (!needUser() || !confirm('Удалить вашу публикацию? Ответы на комментарий тоже будут удалены.')) return
+        if (!needUser() || !confirm(t('Удалить вашу публикацию? Ответы на комментарий тоже будут удалены.'))) return
         button.disabled = true
         await api(`/api/${button.dataset.type}/${button.dataset.id}`,{method:'DELETE'})
-        toast('Публикация удалена'); return render()
+        toast(t('Публикация удалена')); return render()
       }
       if (action.startsWith('onboard-')) {
         if (!needUser()) return
@@ -323,5 +347,6 @@ document.querySelector('.modal-close').onclick = closeModal
 document.querySelector('#modal').addEventListener('click',(event) => { if (event.target === event.currentTarget) closeModal() })
 document.addEventListener('error',(event) => { if (event.target instanceof HTMLImageElement) event.target.remove() },true)
 window.addEventListener('popstate',render)
-try { await refreshMe() } catch (error) { toast(error.message); document.querySelector('#account').innerHTML = '<button class="button secondary" data-action="login">Войти</button>' }
+applyShell()
+try { await refreshMe() } catch (error) { toast(error.message); document.querySelector('#account').innerHTML = t('<button class="button secondary" data-action="login">Войти</button>') }
 render()

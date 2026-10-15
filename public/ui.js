@@ -1,3 +1,4 @@
+import { t, html, language, errorMessage } from './i18n.js'
 const icons = {
   star: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z"/>',
   check: '<path d="m5 12 4 4L19 6"/>', plus: '<path d="M12 5v14M5 12h14"/>',
@@ -9,23 +10,23 @@ const icons = {
 }
 export const icon = (name, cls = '') => `<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] || icons.film}</svg>`
 export const esc = (value = '') => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c])
-export const kindName = (kind) => ({ anime:'Аниме', movie:'Фильм', series:'Сериал' })[kind] || 'Тайтл'
-export const avatar = (name = '') => `<span class="avatar" aria-hidden="true">${esc([...name.trim()][0]?.toUpperCase() || 'G')}</span>`
-export const poster = (item, lazy = true) => `<div class="poster-placeholder"><span>${esc(item.name)}</span>${item.poster ? `<img src="${esc(item.poster)}" alt="Постер: ${esc(item.name)}" ${lazy ? 'loading="lazy"' : 'fetchpriority="high"'} decoding="async">` : ''}</div>`
+export const kindName = (kind) => ({ anime:t('Аниме'), movie:t('Фильм'), series:t('Сериал') })[kind] || t('Тайтл')
+export const avatar = (name = '', color = 'lime') => `<span class="avatar" data-color="${['lime','violet','blue','orange','pink','gray'].includes(color) ? color : 'lime'}" aria-hidden="true">${esc([...name.trim()][0]?.toUpperCase() || 'G')}</span>`
+export const poster = (item, lazy = true) => `<div class="poster-placeholder"><span>${esc(item.name)}</span>${item.poster ? html`<img src="${esc(item.poster)}" alt="Постер: ${esc(item.name)}" ${lazy ? 'loading="lazy"' : 'fetchpriority="high"'} decoding="async">` : ''}</div>`
 export async function api(url, { method = 'GET', body, signal } = {}) {
   let response
   try {
     response = await fetch(url, { method, signal, credentials: 'same-origin', cache:'no-store',
-      headers: method === 'GET' ? {} : { 'Content-Type':'application/json' },
+      headers: { 'Accept-Language': language(), ...(method === 'GET' ? {} : { 'Content-Type':'application/json' }) },
       ...(method === 'GET' ? {} : { body: JSON.stringify(body ?? {}) }),
     })
   } catch (error) {
     if (error.name === 'AbortError') throw error
-    throw new Error('Нет соединения. Проверьте подключение и повторите.')
+    throw new Error(t('Нет соединения. Проверьте подключение и повторите.'))
   }
   const data = await response.json().catch(() => null)
   if (!response.ok) {
-    const error = new Error(data?.error?.message || data?.error || data?.message || 'Не удалось выполнить запрос')
+    const error = new Error(errorMessage(data?.error?.message || data?.error || data?.message, data?.code, response.status))
     error.status = response.status
     error.code = data?.code
     throw error
@@ -35,7 +36,7 @@ export async function api(url, { method = 'GET', body, signal } = {}) {
 let toastTimer
 export function toast(message) {
   const element = document.querySelector('#toast')
-  element.textContent = message
+  element.textContent = t(message)
   element.hidden = false
   clearTimeout(toastTimer)
   toastTimer = setTimeout(() => { element.hidden = true }, 4000)
@@ -47,17 +48,17 @@ export function openModal(content) {
   return modal
 }
 export function closeModal() { document.querySelector('#modal').close() }
-export function empty(title, description, link = '/catalog', label = 'Открыть каталог') {
-  return `<div class="empty-state">${icon('spark')}<h2>${esc(title)}</h2><p>${esc(description)}</p><a class="button primary" href="${esc(link)}">${esc(label)} ${icon('arrow')}</a></div>`
+export function empty(title, description, link = '/catalog', label = t('Каталог')) {
+  return `<div class="empty-state">${icon('spark')}<h2>${esc(title)}</h2>${description ? `<p>${esc(description)}</p>` : ''}<a class="button primary" href="${esc(link)}">${esc(label)} ${icon('arrow')}</a></div>`
 }
 export function cards(items, showWatch = true) {
   return `<div class="poster-grid">${items.map((item) => `<article class="title-card" data-title="${item.id}">
-    <a href="/title/${item.id}" class="poster-link">${poster(item)}<span class="poster-kind">${kindName(item.kind)}</span>${item.watched ? `<span class="watched-badge">${icon('check')} Смотрел</span>` : ''}${item.my_score ? `<span class="personal-score">${icon('star')} ${item.my_score}</span>` : ''}</a>
+    <a href="/title/${item.id}" class="poster-link">${poster(item)}<span class="poster-kind">${kindName(item.kind)}</span>${item.watched ? html`<span class="watched-badge">${icon('check')} Смотрел</span>` : ''}${item.my_score ? `<span class="personal-score">${icon('star')} ${item.my_score}</span>` : ''}</a>
     <div class="card-info"><a href="/title/${item.id}" class="card-title">${esc(item.name)}</a><div class="card-meta"><span>${item.year || '—'} · ${kindName(item.kind)}</span>${item.votes ? `<span class="community-score">${icon('star')} ${item.average}</span>` : ''}</div>
-    ${showWatch ? `<button class="card-watch ${item.watched ? 'selected' : ''}" type="button" data-action="watch" data-id="${item.id}" data-watched="${item.watched ? 'true' : 'false'}">${icon(item.watched ? 'check' : 'plus')} ${item.watched ? 'Смотрел' : 'В просмотренное'}</button>` : ''}</div>
+    ${showWatch ? `<button class="card-watch ${item.watched ? 'selected' : ''}" type="button" data-action="watch" data-id="${item.id}" data-watched="${item.watched ? 'true' : 'false'}">${icon(item.watched ? 'check' : 'plus')} ${item.watched ? t('Смотрел') : t('В просмотренное')}</button>` : ''}</div>
   </article>`).join('')}</div>`
 }
 export function pager(page, pages, makeUrl) {
   if (pages < 2) return ''
-  return `<nav class="pagination" aria-label="Страницы">${page > 1 ? `<a class="button secondary" href="${esc(makeUrl(page - 1))}">Назад</a>` : '<span></span>'}<span>${page} / ${pages}</span>${page < pages ? `<a class="button secondary" href="${esc(makeUrl(page + 1))}">Дальше</a>` : '<span></span>'}</nav>`
+  return html`<nav class="pagination" aria-label="Страницы">${page > 1 ? html`<a class="button secondary" href="${esc(makeUrl(page - 1))}">Назад</a>` : '<span></span>'}<span>${page} / ${pages}</span>${page < pages ? html`<a class="button secondary" href="${esc(makeUrl(page + 1))}">Дальше</a>` : '<span></span>'}</nav>`
 }
