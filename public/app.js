@@ -387,7 +387,10 @@ document.addEventListener('click', async (event) => {
       }
       if (action.startsWith('onboard-')) {
         if (!needUser()) return
+        const controls = [...main.querySelectorAll('[data-action^="onboard-"]')]
+        controls.forEach(control => { control.disabled = true })
         button.disabled = true
+        try {
         if (action === 'onboard-finish') {
           await api('/api/onboarding/complete',{method:'POST'})
           state.onboarding = null; await refreshMe(); navigate('/me?tab=watched'); return
@@ -403,6 +406,7 @@ document.addEventListener('click', async (event) => {
         }
         state.onboarding.index++
         return render()
+        } finally { controls.forEach(control => { if (control.isConnected) control.disabled = false }) }
       }
       if (action === 'import-title') {
         if (!needUser()) return
