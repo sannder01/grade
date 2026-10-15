@@ -1,6 +1,7 @@
 import { api, esc, icon, avatar, poster, kindName, toast, openModal, closeModal, empty, cards, pager } from './ui.js'
 import { t, html, language, setLanguage, applyShell } from './i18n.js'
 import { preparePhoto } from './photo.js'
+import { mountMotion, enableGestures } from './motion.js'
 
 const main = document.querySelector('#main')
 const state = { me: null, generation: 0, title: null, discussion: null, onboarding: null }
@@ -51,7 +52,8 @@ function authModal(mode = 'login') {
 async function render() {
   const generation = ++state.generation
   const path = location.pathname
-  main.innerHTML = t('<div class="loading" role="status"><span class="loader"></span>Загрузка</div>')
+  main.setAttribute('aria-busy','true')
+  main.inert = true
   const nav = path === '/' ? 'home' : path === '/catalog' || path.startsWith('/title/') ? 'catalog' : params().get('tab') || 'ratings'
   document.querySelectorAll('[data-nav]').forEach((link) => { link.classList.toggle('active', link.dataset.nav === nav) })
   try {
@@ -70,12 +72,15 @@ async function render() {
     if (generation !== state.generation) return
     main.innerHTML = content
     bindPage()
+    mountMotion(main)
     document.title = path.startsWith('/title/') && state.title ? `${state.title.name} — Grade` : t('Grade — оценки аниме, фильмов и сериалов')
     const search = params().get('q') || ''
     document.querySelector('#search').value = search
   } catch (error) {
     if (generation !== state.generation) return
     main.innerHTML = html`<section class="container error-page" role="alert"><h1>Не удалось открыть страницу</h1><p>${esc(error.message)}</p><button class="button primary" data-action="retry">Повторить</button></section>`
+  } finally {
+    if (generation === state.generation) { main.inert = false; main.removeAttribute('aria-busy') }
   }
 }
 const loginRequired = () => html`<div class="container">${empty(t('Войдите в аккаунт'), t('Здесь будут ваши оценки и просмотренное'))}<div class="center-action"><button class="button primary" data-action="login">Войти</button></div></div>`
@@ -414,9 +419,11 @@ document.addEventListener('keydown',(event) => {
   if (event.key === '/' && !event.ctrlKey && !event.metaKey && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName) && !document.querySelector('#modal').open) { event.preventDefault(); document.querySelector('#search').focus() }
 })
 document.querySelector('.modal-close').onclick = closeModal
+document.querySelector('#modal').addEventListener('cancel',event => { event.preventDefault(); closeModal() })
 document.querySelector('#modal').addEventListener('click',(event) => { if (event.target === event.currentTarget) closeModal() })
 document.addEventListener('error',(event) => { if (event.target instanceof HTMLImageElement) event.target.remove() },true)
 window.addEventListener('popstate',render)
 applyShell()
+enableGestures(main,navigate)
 try { await refreshMe() } catch (error) { toast(error.message); document.querySelector('#account').innerHTML = t('<button class="button secondary" data-action="login">Войти</button>') }
 render()

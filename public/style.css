@@ -3065,3 +3065,35 @@ img {
   .source-ratings { gap:20px }
   .source-rating strong { font-size:22px }
 }
+
+/* Short, consistent motion without layout shifts */
+:where(button,.button,a,summary,input,select,textarea) {
+  transition:background-color .18s,color .18s,border-color .18s,box-shadow .18s,opacity .18s,transform .18s
+}
+:where(button,.button,.photo-select):active:not(:disabled) { transform:translateY(1px) scale(.975) }
+:where(.category-pills,.profile-tabs,.discussion-tabs,.mobile-nav) a:active { transform:scale(.96) }
+.poster-link img { transition:transform .4s cubic-bezier(.2,.7,.2,1) }
+.poster-link:active img { transform:scale(1.035) }
+.text-link .icon,.button .icon { transition:transform .2s }
+@media(hover:hover) {
+  .text-link:hover .icon,.button:hover .icon { transform:translateX(3px) }
+  .title-card:hover .card-title { color:var(--accent) }
+}
+[data-reveal=pending] { opacity:0; transform:translateY(14px) }
+.modal[open]::backdrop { animation:backdrop-in .18s ease-out }
+@keyframes backdrop-in { from { opacity:0 } to { opacity:1 } }
+.watched-badge,.personal-score,.rating-scale .picked { animation:selection-in .22s ease-out }
+@keyframes selection-in { from { opacity:.6; scale:.94 } to { opacity:1; scale:1 } }
+.onboard-progress>span { transition:width .3s ease }
+.profile-tabs,.category-pills,.discussion-tabs { scroll-behavior:smooth; overscroll-behavior-x:contain }
+#main[aria-busy=true]::before {
+  content:''; position:fixed; top:0; left:0; z-index:60; height:2px; width:100%;
+  background:var(--accent); transform-origin:left; animation:page-progress .8s ease-out forwards
+}
+@keyframes page-progress { from { scale:0 1; opacity:.4 } to { scale:.9 1; opacity:1 } }
+@media(prefers-reduced-motion:reduce) {
+  [data-reveal=pending] { opacity:1; transform:none }
+  :where(button,.button,.photo-select):active:not(:disabled),:where(.category-pills,.profile-tabs,.discussion-tabs,.mobile-nav) a:active { transform:none }
+  .profile-tabs,.category-pills,.discussion-tabs { scroll-behavior:auto }
+  .watched-badge,.personal-score,.rating-scale .picked,.modal[open]::backdrop,#main[aria-busy=true]::before { animation:none }
+}

@@ -1,4 +1,5 @@
 import { t, html, language, errorMessage } from './i18n.js'
+import { motion, reducedMotion } from './motion.js'
 const icons = {
   star: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z"/>',
   check: '<path d="m5 12 4 4L19 6"/>', plus: '<path d="M12 5v14M5 12h14"/>',
@@ -38,16 +39,30 @@ export function toast(message) {
   const element = document.querySelector('#toast')
   element.textContent = t(message)
   element.hidden = false
+  motion(element,[{ opacity:0,translate:'0 8px' },{ opacity:1,translate:'0 0' }])
   clearTimeout(toastTimer)
   toastTimer = setTimeout(() => { element.hidden = true }, 4000)
 }
+let closingModal
 export function openModal(content) {
+  closingModal?.cancel(); closingModal = null
   const modal = document.querySelector('#modal')
   document.querySelector('#modal-content').innerHTML = content
   if (!modal.open) modal.showModal()
+  motion(document.querySelector('.modal-inner'),[{ opacity:0,translate:'0 12px',scale:'.985' },{ opacity:1,translate:'0 0',scale:'1' }])
   return modal
 }
-export function closeModal() { document.querySelector('#modal').close() }
+export function closeModal() {
+  const modal = document.querySelector('#modal')
+  if (!modal.open || closingModal) return
+  if (reducedMotion()) { modal.close(); return }
+  const animation = motion(modal,[{ opacity:1,translate:'0 0' },{ opacity:0,translate:'0 6px' }],{ duration:120 })
+  if (!animation) { modal.close(); return }
+  closingModal = animation
+  animation.finished.then(() => {
+    if (closingModal === animation) { closingModal = null; modal.close() }
+  }).catch(() => {})
+}
 export function empty(title, description, link = '/catalog', label = t('Каталог')) {
   return `<div class="empty-state">${icon('spark')}<h2>${esc(title)}</h2>${description ? `<p>${esc(description)}</p>` : ''}<a class="button primary" href="${esc(link)}">${esc(label)} ${icon('arrow')}</a></div>`
 }
