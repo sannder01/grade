@@ -3240,10 +3240,10 @@ body { background:radial-gradient(ellipse at 85% 0,#ff8c3609,transparent 55%),va
   height:100%;
   object-fit:cover;
   opacity:.86;
-  transform:scale(1.07);
+  transform:scale(1.015);
   transition:transform .9s var(--ease-out),opacity .7s ease
 }
-.trailer-view:hover .trailer-art { transform:scale(1.15); opacity:1 }
+.trailer-view:hover .trailer-art { transform:scale(1.055); opacity:1 }
 .trailer-shade {
   position:absolute;
   inset:0;
@@ -3366,5 +3366,5 @@ body { background:radial-gradient(ellipse at 85% 0,#ff8c3609,transparent 55%),va
 @media(prefers-reduced-motion:reduce) {
   .trailer-dialog[open],.trailer-dialog[open]::backdrop { animation:none }
   .trailer-art,.trailer-play,.trailer-dialog-close { transition:none }
-  .trailer-view:hover .trailer-art { transform:scale(1.07) }
+  .trailer-view:hover .trailer-art { transform:scale(1.015) }
 }
