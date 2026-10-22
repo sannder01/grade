@@ -1,5 +1,60 @@
 // Translation operates on trusted UI literals, never on interpolated profile or post content
 const messages = {
+  "ПРОПУСК ЗРИТЕЛЯ": "VIEWER PASS",
+  "Найти кадр": "Find a frame",
+  "Название фильма, аниме или сериала": "Movie, anime or series title",
+  "Закрыть поиск": "Close search",
+  "Результаты поиска": "Search results",
+  "В КОЛЛЕКЦИИ GRADE": "IN THE GRADE COLLECTION",
+  "От двух символов": "At least two characters",
+  "Поиск во всём каталоге": "Search the full catalog",
+  "Поиск": "Searching",
+  "Разделы": "Sections",
+  "Личная коллекция вкуса": "A personal collection of taste",
+  "Личный взгляд, общий язык": "A personal view, a shared language",
+  "КИНО · АНИМЕ · СЕРИАЛЫ": "FILM · ANIME · SERIES",
+  "То, что смотрим.": "What we watch.",
+  "То, что остаётся.": "What stays with us.",
+  "Собирайте любимое. Замечайте детали.": "Collect your favourites. Notice the details.",
+  "Сохраняйте истории, из которых складывается ваш вкус.": "Keep the stories that shape your taste.",
+  "Моя коллекция": "My collection",
+  "Найти что-то своё": "Find your next favourite",
+  "Хорошее кино": "A good film",
+  "не заканчивается": "doesn't end",
+  "на титрах.": "with the credits.",
+  "Место для ваших впечатлений.": "A place for your impressions.",
+  "СВЯЗИ МЕЖДУ ИСТОРИЯМИ": "CONNECTIONS BETWEEN STORIES",
+  "Собрано по настроению": "Collected by feeling",
+  "Все подборки": "All collections",
+  "Подборки": "Collections",
+  "ПОДБОРКИ": "COLLECTIONS",
+  "Подборка Grade": "A Grade collection",
+  "ПОДБОРКА GRADE": "A GRADE COLLECTION",
+  "За пределами привычного": "Beyond the familiar",
+  "Остаётся с тобой": "Stays with you",
+  "Миры, нарисованные вручную": "Worlds drawn by hand",
+  "Другие миры, большие вопросы и немного бесконечности.": "Other worlds, big questions and a little infinity.",
+  "Истории о людях. И обо всём, что делает нас людьми.": "Stories about people. And everything that makes us human.",
+  "Когда воображение становится местом, в которое хочется вернуться.": "When imagination becomes a place you want to return to.",
+  "Истории рядом.": "Stories in good company.",
+  "Разные фильмы. Общее настроение. Ещё одна точка входа в кино.": "Different films. A shared feeling. Another way into cinema.",
+  "ОТКРЫТЫЙ КАТАЛОГ": "THE OPEN CATALOG",
+  "С чего-то всё начинается": "Every collection starts somewhere",
+  "Весь каталог": "Full catalog",
+  "Выбирайте по себе, а не по цифрам.": "Follow your taste, not the numbers.",
+  "ВАША ТОЧКА ЗРЕНИЯ": "YOUR POINT OF VIEW",
+  "У каждой коллекции — свой автор.": "Every collection has its author.",
+  "Ещё впереди": "Still to come",
+  "Фильмы, до которых хочется добраться.": "Films you want to make time for.",
+  "На вашей шкале": "On your own scale",
+  "Любимое и всё, что оставило впечатление.": "Favourites and everything that made an impression.",
+  "Мои оценки": "My ratings",
+  "После титров": "After the credits",
+  "Мысли, которые стоит сохранить в отзыве.": "Thoughts worth keeping in a review.",
+  "Мои заметки": "My notes",
+  "Ваш вкус не обязан совпадать с чужим.": "Your taste doesn't have to match anyone else's.",
+  "Вспомнить просмотренное": "Remember what you've watched",
+  "Назад к коллекции": "Back to the collection",
   "<h1>Что<br><span>посмотреть?</span></h1>": "<h1>What<br><span>to watch?</span></h1>",
   "Откройте новый фильм, сериал или аниме": "Find a new movie, TV series or anime",
   "Выбрать тайтл": "Find a title",
@@ -296,14 +351,19 @@ export function t(value) {
 export const html = (strings,...values) => strings.reduce((result,part,i) => result+t(part)+(i < values.length ? values[i] : ''),'')
 export function applyShell() {
   document.documentElement.lang = current
-  const labels = { '/':'Обзор', '/catalog':'Каталог', '/me':'Профиль', '/me?tab=planned':'В планах', '/me?tab=watched':'Смотрел', '/me?tab=ratings':'Оценки' }
-  document.querySelectorAll('.desktop-nav a,.mobile-nav a').forEach(link => { link.textContent = t(labels[link.getAttribute('href')]) })
+  const labels = { '/':'Обзор', '/collections':'Подборки', '/catalog':'Каталог', '/me':'Профиль', '/me?tab=planned':'В планах', '/me?tab=watched':'Смотрел', '/me?tab=ratings':'Оценки' }
+  document.querySelectorAll('.desktop-nav a,.mobile-nav a').forEach(link => { link.querySelector('.track-label').textContent = t(link.getAttribute('href') === '/me' ? 'Моя коллекция' : labels[link.getAttribute('href')]) })
+  document.querySelector('.search-trigger-label').textContent = t('Найти кадр')
+  document.querySelector('.search-close').setAttribute('aria-label',t('Закрыть поиск'))
+  document.querySelector('.search-submit').setAttribute('aria-label',t('Все результаты'))
+  document.querySelector('#search-tray').setAttribute('aria-label',t('Результаты поиска'))
+  document.querySelector('.tray-eyebrow').textContent = t('В КОЛЛЕКЦИИ GRADE')
   document.querySelector('.skip-link').textContent = t('К содержимому')
   document.querySelector('.header .brand').setAttribute('aria-label',t('Grade — главная'))
   document.querySelector('.desktop-nav').setAttribute('aria-label',t('Основная навигация'))
   document.querySelector('.mobile-nav').setAttribute('aria-label',t('Мобильная навигация'))
   document.querySelector('label[for=search]').textContent = t('Найти аниме, фильм или сериал')
-  document.querySelector('#search').placeholder = t('Поиск по названию')
+  document.querySelector('#search').placeholder = t('Название фильма, аниме или сериала')
   document.querySelector('.modal-close').setAttribute('aria-label',t('Закрыть'))
   document.querySelector('#trailer-dialog').setAttribute('aria-label',t('Просмотр трейлера'))
   document.querySelector('.trailer-dialog-close').setAttribute('aria-label',t('Закрыть трейлер'))
@@ -313,6 +373,10 @@ export function applyShell() {
   const button = document.querySelector('#language-switch')
   button.textContent = current === 'ru' ? 'EN' : 'RU'
   button.setAttribute('aria-label',current === 'ru' ? 'Switch to English' : 'Переключить на русский')
+  const mobileLanguage = document.querySelector('.mobile-language')
+  mobileLanguage.textContent = current === 'ru' ? 'English' : 'Русский'
+  mobileLanguage.setAttribute('aria-label',current === 'ru' ? 'Switch to English' : 'Переключить на русский')
+  document.dispatchEvent(new Event('grade:language'))
 }
 const authErrors = {
   INVALID_PASSWORD:'Неверный текущий пароль', PASSWORD_TOO_SHORT:'Не менее 10 символов',

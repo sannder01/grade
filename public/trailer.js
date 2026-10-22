@@ -1,5 +1,6 @@
 import { api } from './ui.js'
 import { t } from './i18n.js'
+import { openDialog, closeDialog } from './motion.js'
 
 const dialog = document.querySelector('#trailer-dialog')
 const video = dialog.querySelector('iframe')
@@ -9,10 +10,11 @@ let trigger = null
 
 export function closeTrailer() {
   if (!dialog.open) return
-  dialog.close()
   video.removeAttribute('src')
-  if (trigger?.isConnected) trigger.focus({ preventScroll:true })
-  trigger = null
+  closeDialog(dialog, () => {
+    if (trigger?.isConnected) trigger.focus({ preventScroll:true })
+    trigger = null
+  })
 }
 
 dialog.querySelector('.trailer-dialog-close').addEventListener('click', closeTrailer)
@@ -42,7 +44,7 @@ export async function mountTrailer(item) {
       dialog.querySelector('.trailer-external').href = `https://www.youtube.com/watch?v=${result.key}`
       video.title = `${t('Трейлер')}: ${item.name}`
       video.src = `https://www.youtube-nocookie.com/embed/${result.key}?autoplay=1&rel=0&playsinline=1`
-      dialog.showModal()
+      openDialog(dialog)
     })
     section.hidden = false
   } catch { /* A missing video service must not interrupt the title page. */ }

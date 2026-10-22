@@ -1,35 +1,49 @@
 import { api, esc, icon, avatar, poster, kindName, toast, openModal, closeModal, empty, cards, pager } from './ui.js'
 import { t, html, language, setLanguage, applyShell } from './i18n.js'
 import { preparePhoto } from './photo.js'
-import { mountMotion, leavePage, syncNavigation, enableGestures } from './motion.js'
+import { mountMotion, leavePage, syncNavigation, enableGestures, prepareNavigation } from './motion.js'
 import { mountTrailer, closeTrailer } from './trailer.js'
-import { mountLiquidGlass } from './liquid-glass.js'
+import { loadCollections, collectionCards, collectionBySlug } from './collections.js'
+import { initializeHeader, closeHeaderPanels, openHeaderSearch, viewerPass } from './header-track.js'
 
 const main = document.querySelector('#main')
 const state = { me: null, generation: 0, title: null, discussion: null, onboarding: null }
 const params = () => new URLSearchParams(location.search)
 const urlFor = (values) => `/catalog?${new URLSearchParams(values)}`
-function navigate(url, replace = false) {
-  history[replace ? 'replaceState' : 'pushState']({}, '', url)
-  render({ resetScroll:true })
+const views = new Map()
+let entryKey = history.state?.gradeKey || crypto.randomUUID()
+history.replaceState({ ...history.state, gradeKey: entryKey }, '')
+function rememberView() {
+  const comment = document.querySelector('#comment-text')
+  views.set(entryKey, { scroll: scrollY, focus: document.activeElement?.id, focusHref: document.activeElement?.closest('a[href]')?.getAttribute('href'), comment: comment?.value })
+  if (views.size > 40) views.delete(views.keys().next().value)
+}
+function navigate(url, replace = false, link = null) {
+  rememberView()
+  closeHeaderPanels()
+  const samePage = new URL(url, location.href).pathname === location.pathname
+  prepareNavigation(link, url)
+  const previous = location.pathname + location.search
+  entryKey = crypto.randomUUID()
+  history[replace ? 'replaceState' : 'pushState']({ gradeKey: entryKey, gradeFrom: previous }, '', url)
+  render({ resetScroll: !samePage })
 }
 async function refreshMe() {
   const data = await api('/api/me')
   state.me = data.user ? data : null
-  document.querySelector('#account').innerHTML = state.me
-    ? html`<a class="account-link" href="/u/${encodeURIComponent(data.user.username)}" aria-label="Мой профиль">${avatar(data.user.name, data.avatar_color, data.avatar_url)}<span>${esc(data.user.username)}</span></a><button class="text-button signout" data-action="signout" type="button">Выйти</button>`
-    : html`<button class="button secondary login-button" data-action="login" type="button">Войти <span>${icon('arrow-up-right')}</span></button>`
+  document.querySelector('#account').innerHTML = viewerPass(state.me?.user)
 }
 function needUser() { if (state.me) return true; authModal(); return false }
 function authModal(mode = 'login') {
   const signup = mode === 'signup'
-  openModal(html`<div class="auth-mark">${icon('brand')}</div><h2>${signup ? t('Регистрация') : t('Вход')}</h2>
+  closeHeaderPanels()
+  openModal(html`<div class="auth-mark">${icon('brand')}<span>${t('ПРОПУСК ЗРИТЕЛЯ')}</span></div><h2 id="auth-title">${signup ? t('Регистрация') : t('Вход')}</h2>
     <form id="auth-form" class="stack-form">
       ${signup ? t('<label>Как вас зовут<input name="name" required minlength="2" maxlength="40" autocomplete="name" placeholder="Ваше имя"></label><label>Никнейм<input name="username" aria-label="Никнейм" aria-describedby="username-hint" required minlength="3" maxlength="24" pattern="[a-zA-Z0-9_]+" autocomplete="username" placeholder="Например, sannder"><small id="username-hint">Латинские буквы, цифры и _</small></label>') : ''}
       <label>${signup ? t('Почта') : t('Почта или никнейм')}<input name="login" ${signup ? 'type="email"' : 'type="text"'} required maxlength="254" autocomplete="${signup ? 'email' : 'username'}" placeholder="${signup ? 'you@example.com' : t('you@example.com или никнейм')}"></label>
       <label>Пароль<input name="password" type="password" required minlength="${signup ? 10 : 1}" maxlength="128" autocomplete="${signup ? 'new-password' : 'current-password'}" placeholder="${signup ? t('Не менее 10 символов') : t('Ваш пароль')}"></label>
       <p class="form-error" role="alert" hidden></p><button class="button primary full" type="submit">${signup ? t('Создать аккаунт') : t('Войти')} ${icon('arrow')}</button>
-    </form><p class="auth-switch">${signup ? t('Уже есть аккаунт?') : t('Нет аккаунта?')} <button class="text-button" data-action="auth-switch" data-mode="${signup ? 'login' : 'signup'}">${signup ? t('Войти') : t('Зарегистрироваться')}</button></p>`)
+    </form><p class="auth-switch">${signup ? t('Уже есть аккаунт?') : t('Нет аккаунта?')} <button class="text-button" data-action="auth-switch" data-mode="${signup ? 'login' : 'signup'}">${signup ? t('Войти') : t('Зарегистрироваться')}</button></p>`, { kind:'auth' })
   document.querySelector('#auth-form').onsubmit = async (event) => {
     event.preventDefault()
     const form = event.currentTarget, button = form.querySelector('[type=submit]'), error = form.querySelector('.form-error'), values = Object.fromEntries(new FormData(form))
@@ -50,19 +64,15 @@ function authModal(mode = 'login') {
   }
 }
 
-async function render({ resetScroll = false } = {}) {
+async function render({ resetScroll = false, restore = null } = {}) {
   closeTrailer()
   const generation = ++state.generation
   const path = location.pathname
   main.setAttribute('aria-busy','true')
-  main.inert = true
-  main.setAttribute('aria-hidden','true')
   const profile = path === '/me' || path.startsWith('/u/') || path === '/start'
-  const nav = path === '/' ? 'home' : path === '/catalog' || path.startsWith('/title/') ? 'catalog' : profile ? 'profile' : null
+  const nav = path === '/' ? 'home' : path.startsWith('/collections') ? 'collections' : path === '/catalog' || path.startsWith('/title/') ? 'catalog' : profile ? 'profile' : null
   document.querySelectorAll('[data-nav],.account-link').forEach(link => {
-    const active = link.closest('.desktop-nav') && profile
-      ? link.dataset.nav === (params().get('tab') || 'ratings')
-      : link.classList.contains('account-link') ? profile && link.getAttribute('href') === path : link.dataset.nav === nav
+    const active = link.classList.contains('account-link') ? profile && link.getAttribute('href') === path : link.dataset.nav === nav
     link.classList.toggle('active',active)
     if (active) link.setAttribute('aria-current','page')
     else link.removeAttribute('aria-current')
@@ -71,6 +81,7 @@ async function render({ resetScroll = false } = {}) {
   try {
     let content
     if (path === '/') content = await homePage()
+    else if (path === '/collections' || /^\/collections\/[a-z-]+$/.test(path)) content = await collectionsPage(path.split('/')[2])
     else if (path === '/catalog') content = await catalogPage()
     else if (/^\/title\/\d+$/.test(path)) content = await titlePage(path.split('/').pop())
     else if (path === '/me' || path.startsWith('/u/')) {
@@ -85,19 +96,21 @@ async function render({ resetScroll = false } = {}) {
     await leavePage(main)
     if (generation !== state.generation) return
     main.innerHTML = content
-    if (resetScroll) window.scrollTo({ top:0,behavior:'instant' })
+    if (restore) window.scrollTo({ top: restore.scroll, behavior:'instant' })
+    else if (resetScroll) window.scrollTo({ top:0,behavior:'instant' })
     bindPage()
+    if (restore?.comment != null && document.querySelector('#comment-text')) document.querySelector('#comment-text').value = restore.comment
+    if (restore?.focus) document.getElementById(restore.focus)?.focus({ preventScroll:true })
+    else if (restore?.focusHref) main.querySelector(`a[href="${CSS.escape(restore.focusHref)}"]`)?.focus({ preventScroll:true })
     mountMotion(main)
-    mountLiquidGlass()
     document.title = path.startsWith('/title/') && state.title ? `${state.title.name} — Grade` : t('Grade — оценки аниме, фильмов и сериалов')
     const search = params().get('q') || ''
-    document.querySelector('#search').value = search
+    if (!document.querySelector('.track-header').classList.contains('search-is-open')) document.querySelector('#search').value = search
   } catch (error) {
     if (generation !== state.generation) return
     main.innerHTML = html`<section class="container error-page" role="alert"><h1>Не удалось открыть страницу</h1><p>${esc(error.message)}</p><button class="button primary" data-action="retry">Повторить</button></section>`
     if (resetScroll) window.scrollTo({ top:0,behavior:'instant' })
     mountMotion(main)
-    mountLiquidGlass()
   } finally {
     if (generation === state.generation) { main.inert = false; main.removeAttribute('aria-busy'); main.removeAttribute('aria-hidden') }
   }
@@ -105,15 +118,26 @@ async function render({ resetScroll = false } = {}) {
 const loginRequired = () => html`<div class="container">${empty(t('Войдите в аккаунт'), t('Здесь будут ваши оценки и просмотренное'))}<div class="center-action"><button class="button primary" data-action="login">Войти</button></div></div>`
 
 async function homePage() {
-  const result = await api('/api/catalog?sort=popular')
-  const featured = result.items[0]
-  if (!featured) return empty(t('Каталог пуст'), t('Загляните позже'))
-  return html`<section class="hero container"><div class="hero-backdrop" style="background-image:url('${esc(featured.backdrop)}')"></div><div class="hero-content"><h1>Что<br><span>посмотреть?</span></h1><p>Откройте новый фильм, сериал или аниме</p><div class="hero-actions"><a href="/catalog" class="button primary">Выбрать тайтл ${icon('arrow')}</a><a href="/start" class="text-link">Просмотренное</a></div></div><a href="/title/${featured.id}" class="hero-feature"><strong>${esc(featured.name)}</strong><span>${featured.year} · ${kindName(featured.kind)} ${icon('arrow')}</span></a></section>
-    <div class="container home-body">
-    ${state.me && !state.me.onboarding_done ? html`<a class="onboarding-banner" href="/start"><span>${icon('brand')}</span><div><strong>Просмотренное</strong><p>Добавьте знакомые тайтлы</p></div>`+icon('arrow')+'</a>' : ''}
-    <section class="catalog-section"><div class="section-heading"><h2>Популярное</h2><a class="text-link" href="/catalog">Каталог ${icon('arrow')}</a></div><div class="category-pills"><a class="active" href="/catalog">Всё</a><a href="/catalog?kind=anime">Аниме</a><a href="/catalog?kind=movie">Фильмы</a><a href="/catalog?kind=series">Сериалы</a></div>${cards(result.items.slice(0, 6))}</section>
-    <section class="catalog-section"><div class="section-heading"><h2>Аниме</h2><a href="/catalog?kind=anime" class="text-link">Все аниме ${icon('arrow')}</a></div>${cards(result.items.filter((item) => item.kind === 'anime').slice(0,6))}</section>
-    </div>`
+  const [result, collections] = await Promise.all([api('/api/catalog?sort=popular'), loadCollections()])
+  if (!result.items.length) return empty(t('Каталог пуст'), t('Загляните позже'))
+  return html`<div class="container home-page">
+    <section class="hero"><div class="hero-content"><p class="hero-kicker">КИНО · АНИМЕ · СЕРИАЛЫ <span>Личный взгляд, общий язык</span></p><h1>То, что смотрим.<br><span>То, что остаётся.</span></h1><p class="hero-description">Собирайте любимое. Замечайте детали.<br> Сохраняйте истории, из которых складывается ваш вкус.</p><div class="hero-actions"><a href="/me" class="button primary">Моя коллекция ${icon('arrow-up-right')}</a><a href="/catalog" class="text-link">Найти что-то своё ${icon('arrow')}</a></div></div><aside class="hero-note"><span class="index-label">GRADE / 001</span>${icon('brand')}<p>Хорошее кино<br>не заканчивается<br>на титрах.</p><span class="note-caption">Место для ваших впечатлений.</span></aside></section>
+    <section class="catalog-section"><div class="section-heading"><div><p class="eyebrow">01 / СВЯЗИ МЕЖДУ ИСТОРИЯМИ</p><h2>Собрано по настроению</h2></div><a class="text-link" href="/collections">Все подборки ${icon('arrow-up-right')}</a></div>${collectionCards(collections)}</section>
+    <section class="catalog-section library-section"><div class="section-heading"><div><p class="eyebrow">02 / ОТКРЫТЫЙ КАТАЛОГ</p><h2>С чего-то всё начинается</h2></div><a class="text-link" href="/catalog?view=grade">Весь каталог ${icon('arrow-up-right')}</a></div><div class="category-pills"><a class="active" href="/catalog?view=grade">Всё</a><a href="/catalog?kind=movie&view=grade">Фильмы</a><a href="/catalog?kind=anime&view=grade">Аниме</a><a href="/catalog?kind=series&view=grade">Сериалы</a><span class="catalog-footnote">Выбирайте по себе, а не по цифрам.</span></div>${cards(result.items.slice(0, 6))}</section>
+    <section class="personal-section"><div class="section-heading"><div><p class="eyebrow">03 / ВАША ТОЧКА ЗРЕНИЯ</p><h2>У каждой коллекции — свой автор.</h2></div></div><div class="personal-grid"><a class="personal-collection" href="/me?tab=planned"><span class="index-label">[ 01 ]</span><h3>Ещё впереди</h3><p>Фильмы, до которых хочется добраться.</p><span class="text-link">В планах ${icon('arrow-up-right')}</span></a><a class="personal-collection" href="/me?tab=ratings"><span class="index-label">[ 02 ]</span><h3>На вашей шкале</h3><p>Любимое и всё, что оставило впечатление.</p><span class="text-link">Мои оценки ${icon('arrow-up-right')}</span></a><a class="personal-collection" href="/me?tab=reviews"><span class="index-label">[ 03 ]</span><h3>После титров</h3><p>Мысли, которые стоит сохранить в отзыве.</p><span class="text-link">Мои заметки ${icon('arrow-up-right')}</span></a></div><div class="archive-note"><span>Ваш вкус не обязан совпадать с чужим.</span><a href="/start" class="text-link">Вспомнить просмотренное ${icon('arrow')}</a></div></section>
+  </div>`
+}
+
+async function collectionsPage(slug) {
+  const collections = await loadCollections()
+  if (!slug) return html`<div class="container page"><header class="page-heading"><div><p class="eyebrow">GRADE / ПОДБОРКИ</p><h1>Истории рядом.</h1><p>Разные фильмы. Общее настроение. Ещё одна точка входа в кино.</p></div><span class="index-label">03 COLLECTIONS</span></header>${collectionCards(collections)}</div>`
+  const collection = collectionBySlug(collections, slug)
+  if (!collection) return empty(t('Страница не найдена'), t('Вернитесь в каталог'))
+  const kind = params().get('kind') || '', sort = params().get('sort') || 'popular'
+  let items = collection.items.filter(item => !kind || item.kind === kind)
+  if (sort === 'new') items = [...items].sort((a,b) => b.year-a.year)
+  else if (sort === 'rating') items = [...items].sort((a,b) => (b.average ?? -1)-(a.average ?? -1))
+  return html`<div class="container page collection-page"><a href="/collections" class="back-link">${icon('arrow-left')} Все подборки</a><header class="page-heading"><div><p class="eyebrow">${esc(collection.index)} / ПОДБОРКА GRADE</p><h1>${esc(t(collection.name))}</h1><p>${esc(t(collection.description))}</p></div><span class="catalog-count">${items.length}<small> ${t('тайтлов')}</small></span></header><div class="catalog-toolbar"><nav class="category-pills" aria-label="${t('Тип тайтла')}">${[['',t('Всё')],['movie',t('Фильмы')],['anime',t('Аниме')],['series',t('Сериалы')]].map(([value,label]) => `<a class="${kind === value ? 'active' : ''}" href="/collections/${slug}?${new URLSearchParams({kind:value,sort})}">${label}</a>`).join('')}</nav><label class="sort-label">${t('Сначала')}<select id="collection-sort"><option value="popular" ${sort === 'popular' ? 'selected' : ''}>${t('Популярное')}</option><option value="new" ${sort === 'new' ? 'selected' : ''}>${t('По году')}</option><option value="rating" ${sort === 'rating' ? 'selected' : ''}>${t('По оценкам')}</option></select></label></div>${items.length ? cards(items) : empty(t('Ничего не найдено'),t('Попробуйте другой жанр или год'))}</div>`
 }
 async function catalogPage() {
   const p = params(), kind = p.get('kind') || '', search = p.get('q') || '', sort = p.get('sort') || 'popular'
@@ -199,7 +223,7 @@ async function titlePage(titleId) {
     api(`/api/titles/${titleId}`), api(`/api/titles/${titleId}/discussion?${new URLSearchParams({type,filter,page:current})}`),
   ])
   if (location.pathname === `/title/${titleId}`) state.title = item
-  return html`<div class="container title-page"><a href="/catalog" class="back-link">${icon('arrow-left')} В каталог</a><div class="title-layout"><aside class="title-sidebar"><div class="detail-poster">${poster(item,false)}</div><button class="button ${item.watched ? 'selected' : 'primary'} full" data-action="watch" data-id="${item.id}" data-watched="${item.watched ? 'true' : 'false'}">${icon(item.watched ? 'check' : 'plus')} ${item.watched ? t('Уже в просмотренном') : t('Смотрел')}</button><button class="button secondary full title-plan" data-action="plan" data-id="${item.id}" data-planned="${!!item.planned}" aria-pressed="${!!item.planned}">${icon('bookmark')} ${item.planned ? t('В планах') : t('В планы')}</button><p class="small muted center">Без оценки</p></aside>
+  return html`<div class="container title-page"><a href="${esc(history.state?.gradeFrom || '/catalog')}" class="back-link">${icon('arrow-left')} ${history.state?.gradeFrom ? t('Назад к коллекции') : t('В каталог')}</a><div class="title-layout"><aside class="title-sidebar"><div class="detail-poster">${poster(item,false)}</div><button class="button ${item.watched ? 'selected' : 'primary'} full" data-action="watch" data-id="${item.id}" data-watched="${item.watched ? 'true' : 'false'}">${icon(item.watched ? 'check' : 'plus')} ${item.watched ? t('Уже в просмотренном') : t('Смотрел')}</button><button class="button secondary full title-plan" data-action="plan" data-id="${item.id}" data-planned="${!!item.planned}" aria-pressed="${!!item.planned}">${icon('bookmark')} ${item.planned ? t('В планах') : t('В планы')}</button><p class="small muted center">Без оценки</p></aside>
     <div class="title-info"><div class="title-kicker"><span class="kind-label">${kindName(item.kind)}</span><span>${item.year || ''}</span><span>${esc(item.runtime)}</span></div><h1>${esc(item.name)}</h1><p class="original-name">${esc(item.original_name)}</p><div class="genre-tags">${item.genres.map((genre) => `<a href="/catalog?q=${encodeURIComponent(genre)}">${esc(genre)}</a>`).join('')}</div>
     <div class="title-overview"><div class="overall-score"><strong>${item.average ?? '—'}</strong><div>${icon('star')}<span>${item.votes ? html`${item.votes} оценок Grade` : t('Пока нет оценок')}</span></div></div><div id="external-ratings" data-id="${item.id}" aria-label="Рейтинги других сервисов">${ratingSources(null)}</div></div>
     <p class="title-description">${esc(item.description || t('Описание пока не добавлено.'))}</p><section id="title-trailer" class="title-trailer" aria-label="${t('Трейлер')}" hidden><div class="trailer-glow" aria-hidden="true"></div><div class="trailer-view"><img class="trailer-art" alt="" decoding="async"><div class="trailer-shade"></div><span class="trailer-eyebrow">GRADE CINEMA ${icon('brand')} ${t('Трейлер')}</span><button type="button" class="trailer-play" aria-label="${t('Смотреть трейлер')}">${icon('play')}</button><div class="trailer-meta"><div><span class="trailer-meta-label">${t('Смотреть трейлер')}</span><strong class="trailer-film-name"></strong><small class="trailer-clip-name"></small></div><span class="trailer-meta-arrow" aria-hidden="true">${icon('arrow-up-right')}</span></div></div></section><section class="rating-section"><div><h2>Ваша оценка</h2><span>${item.my_score ? html`${item.my_score} из 10` : t('Без оценки')}</span></div><div class="rating-scale" role="group" aria-label="Оценка от 1 до 10">${Array.from({length:10},(_,i) => html`<button type="button" aria-label="Оценить на ${i+1}" aria-pressed="${item.my_score === i+1}" data-action="rate" data-id="${item.id}" data-score="${i+1}" class="${item.my_score === i+1 ? 'picked' : ''}">${i+1}</button>`).join('')}</div>${item.my_score ? html`<button class="text-button remove-rating" data-action="remove-rating" data-id="${item.id}">Удалить мою оценку</button>` : ''}</section>
@@ -218,6 +242,8 @@ function discussionItem(row, type) {
 }
 
 function bindPage() {
+  const collectionSort = document.querySelector('#collection-sort')
+  if (collectionSort) collectionSort.onchange = () => { const p = params(); p.set('sort', collectionSort.value); navigate(`${location.pathname}?${p}`) }
   if (state.title && document.querySelector('#title-trailer')) mountTrailer(state.title)
   const sources = document.querySelector('#external-ratings')
   if (sources) api(`/api/titles/${sources.dataset.id}/external-ratings`).then(data => {
@@ -464,20 +490,28 @@ document.addEventListener('click', async (event) => {
   if (!link || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0 || link.target || link.hasAttribute('download')) return
   const target = new URL(link.href, location.href)
   if (target.origin !== location.origin || target.hash) return
-  event.preventDefault(); navigate(target.pathname + target.search)
+  if (link.classList.contains('back-link') && location.pathname.startsWith('/title/') && views.size && history.state?.gradeFrom) { event.preventDefault(); history.back(); return }
+  event.preventDefault(); navigate(target.pathname + target.search, false, link)
 })
 document.querySelector('#search-form').onsubmit = (event) => {
   event.preventDefault(); navigate(urlFor({q:document.querySelector('#search').value.trim()}))
 }
 document.addEventListener('keydown',(event) => {
-  if (event.key === '/' && !event.ctrlKey && !event.metaKey && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName) && !document.querySelector('#modal').open) { event.preventDefault(); document.querySelector('#search').focus() }
+  if (event.key === '/' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.target.closest('input,textarea,select,[contenteditable]') && !document.querySelector('dialog[open]')) { event.preventDefault(); openHeaderSearch() }
 })
 document.querySelector('.modal-close').onclick = closeModal
 document.querySelector('#modal').addEventListener('cancel',event => { event.preventDefault(); closeModal() })
 document.querySelector('#modal').addEventListener('click',(event) => { if (event.target === event.currentTarget) closeModal() })
 document.addEventListener('error',(event) => { if (event.target instanceof HTMLImageElement) event.target.remove() },true)
-window.addEventListener('popstate',render)
+window.addEventListener('popstate',() => {
+  closeHeaderPanels()
+  rememberView()
+  entryKey = history.state?.gradeKey || crypto.randomUUID()
+  prepareNavigation(null, location.pathname + location.search)
+  render({ resetScroll:true, restore:views.get(entryKey) })
+})
 applyShell()
+initializeHeader()
 enableGestures(main,navigate)
-try { await refreshMe() } catch (error) { toast(error.message); document.querySelector('#account').innerHTML = t('<button class="button secondary" data-action="login">Войти</button>') }
+try { await refreshMe() } catch (error) { toast(error.message); document.querySelector('#account').innerHTML = viewerPass() }
 render()

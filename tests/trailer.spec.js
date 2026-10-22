@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
+test.use({locale:'ru-RU'})
 
-test('trailer opens in the glass player, stops on close and disappears when unavailable', async ({ page }) => {
+test('trailer opens in the editorial player, stops on close and disappears when unavailable', async ({ page }) => {
   const catalog = await (await page.request.get('/api/catalog')).json()
   const title = catalog.items.find(item => item.source === 'tmdb')
   expect(title).toBeTruthy()

@@ -1,5 +1,5 @@
 import { t, html, language, errorMessage } from './i18n.js'
-import { motion, reducedMotion } from './motion.js'
+import { motion, openDialog, closeDialog } from './motion.js'
 const icons = {
   ...Object.fromEntries(['brand','play','arrow-up-right','arrow-left','search','close','reply'].map(name => [name, `<use href="/icons.svg#${name}"/>`])),
   star: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z"/>',
@@ -15,7 +15,7 @@ export const icon = (name, cls = '') => `<svg class="icon ${cls}" viewBox="0 0 2
 export const esc = (value = '') => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c])
 export const kindName = (kind) => ({ anime:t('Аниме'), movie:t('Фильм'), series:t('Сериал') })[kind] || t('Тайтл')
 export const avatar = (name = '', color = 'lime', photo = '') => `<span class="avatar" data-color="${['lime','violet','blue','orange','pink','gray'].includes(color) ? color : 'lime'}" aria-hidden="true">${esc([...name.trim()][0]?.toUpperCase() || 'G')}${/^\/api\/avatars\/[a-zA-Z0-9_-]+\/[0-9a-f-]{36}$/.test(photo) ? `<img src="${esc(photo)}" alt="" decoding="async">` : ''}</span>`
-export const poster = (item, lazy = true) => `<div class="poster-placeholder"><span>${esc(item.name)}</span>${item.poster ? html`<img src="${esc(item.poster)}" alt="Постер: ${esc(item.name)}" ${lazy ? 'loading="lazy"' : 'fetchpriority="high"'} decoding="async">` : ''}</div>`
+export const poster = (item, lazy = true) => `<div class="poster-placeholder" data-poster-id="${esc(item.id || item.external_id || '')}"><span>${esc(item.name)}</span>${item.poster ? html`<img src="${esc(item.poster)}" alt="Постер: ${esc(item.name)}" ${lazy ? 'loading="lazy"' : 'fetchpriority="high"'} decoding="async">` : ''}</div>`
 export async function api(url, { method = 'GET', body, signal, raw = false } = {}) {
   let response
   try {
@@ -42,7 +42,7 @@ export function toast(message) {
   element.textContent = t(message)
   element.hidden = false
   toastAnimation?.cancel()
-  toastAnimation = motion(element,[{ opacity:0,translate:'0 14px',scale:'.94' },{ opacity:1,translate:'0 0',scale:'1' }],{ duration:500 })
+  toastAnimation = motion(element,[{ opacity:0,translate:'0 8px' },{ opacity:1,translate:'0 0' }],{ duration:200 })
   clearTimeout(toastTimer)
   toastTimer = setTimeout(async () => {
     const animation = toastAnimation = motion(element,[{ opacity:1,translate:'0 0' },{ opacity:0,translate:'0 8px' }],{ duration:200 })
@@ -50,29 +50,17 @@ export function toast(message) {
     if (toastAnimation === animation) element.hidden = true
   },4000)
 }
-let closingModal, openingModal
-export function openModal(content) {
-  closingModal?.cancel(); closingModal = null
+export function openModal(content, { kind = 'default' } = {}) {
   const modal = document.querySelector('#modal')
-  modal.removeAttribute('data-closing')
-  openingModal?.cancel()
+  modal.classList.toggle('track-auth',kind === 'auth')
+  if (kind === 'auth') modal.setAttribute('aria-labelledby','auth-title')
+  else modal.removeAttribute('aria-labelledby')
   document.querySelector('#modal-content').innerHTML = content
-  if (!modal.open) modal.showModal()
-  openingModal = motion(modal,[{ opacity:0,translate:'0 24px',scale:'.96' },{ opacity:1,translate:'0 -2px',scale:'1.003',offset:.75 },{ opacity:1,translate:'0 0',scale:'1' }],{ duration:520 })
+  openDialog(modal)
   return modal
 }
 export function closeModal() {
-  const modal = document.querySelector('#modal')
-  if (!modal.open || closingModal) return
-  openingModal?.cancel()
-  if (reducedMotion()) { modal.close(); return }
-  modal.dataset.closing = 'true'
-  const animation = motion(modal,[{ opacity:1,translate:'0 0',scale:'1' },{ opacity:0,translate:'0 14px',scale:'.98' }],{ duration:200,easing:'ease-out' })
-  if (!animation) { modal.close(); return }
-  closingModal = animation
-  animation.finished.then(() => {
-    if (closingModal === animation) { closingModal = null; modal.close(); modal.removeAttribute('data-closing') }
-  }).catch(() => {})
+  closeDialog(document.querySelector('#modal'))
 }
 export function empty(title, description, link = '/catalog', label = t('Каталог')) {
   return `<div class="empty-state">${icon('spark')}<h2>${esc(title)}</h2>${description ? `<p>${esc(description)}</p>` : ''}<a class="button primary" href="${esc(link)}">${esc(label)} ${icon('arrow')}</a></div>`
