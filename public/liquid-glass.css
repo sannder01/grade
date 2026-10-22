@@ -46,11 +46,18 @@
   overflow:hidden
 }
 .liquid-glass-layer * { pointer-events:none !important }
+.liquid-glass-layer,.liquid-glass-layer span { margin:0 !important }
 .liquid-glass-layer>.grade-liquid-surface>.glass { width:100%; height:100%; box-shadow:none !important }
 .liquid-glass-layer>.grade-liquid-surface>.glass>div { width:100%; height:100% }
 /* The upstream package uses Tailwind utilities for these two hidden layers. */
 .liquid-glass-layer>.opacity-0 { opacity:0 }
 .liquid-glass-layer>span { opacity:.45 }
+.mobile-nav .liquid-glass-layer .glass::after {
+  content:'';
+  position:absolute;
+  inset:0;
+  background:linear-gradient(120deg,#152116b3,#1521168c)
+}
 .liquid-glass-ready:is(.hero-feature,.mobile-nav,.trailer-play) {
   -webkit-backdrop-filter:none;
   backdrop-filter:none
