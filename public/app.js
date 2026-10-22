@@ -3,6 +3,7 @@ import { t, html, language, setLanguage, applyShell } from './i18n.js'
 import { preparePhoto } from './photo.js'
 import { mountMotion, leavePage, syncNavigation, enableGestures } from './motion.js'
 import { mountTrailer, closeTrailer } from './trailer.js'
+import { mountLiquidGlass } from './liquid-glass.js'
 
 const main = document.querySelector('#main')
 const state = { me: null, generation: 0, title: null, discussion: null, onboarding: null }
@@ -87,6 +88,7 @@ async function render({ resetScroll = false } = {}) {
     if (resetScroll) window.scrollTo({ top:0,behavior:'instant' })
     bindPage()
     mountMotion(main)
+    mountLiquidGlass()
     document.title = path.startsWith('/title/') && state.title ? `${state.title.name} — Grade` : t('Grade — оценки аниме, фильмов и сериалов')
     const search = params().get('q') || ''
     document.querySelector('#search').value = search
@@ -95,6 +97,7 @@ async function render({ resetScroll = false } = {}) {
     main.innerHTML = html`<section class="container error-page" role="alert"><h1>Не удалось открыть страницу</h1><p>${esc(error.message)}</p><button class="button primary" data-action="retry">Повторить</button></section>`
     if (resetScroll) window.scrollTo({ top:0,behavior:'instant' })
     mountMotion(main)
+    mountLiquidGlass()
   } finally {
     if (generation === state.generation) { main.inert = false; main.removeAttribute('aria-busy'); main.removeAttribute('aria-hidden') }
   }

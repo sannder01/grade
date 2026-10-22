@@ -38,6 +38,8 @@ jobs:
         with:
           node-version: '22'
       - run: npm ci --no-audit --no-fund
+      - run: npm run build:glass
+      - run: git diff --exit-code -- public/assets/
       - run: npm run check
       - run: npm test
       - run: node scripts/setup-ci.mjs
