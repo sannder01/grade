@@ -103,6 +103,9 @@ test('viewer pass connects to login and shows the signed-in name with a profile 
   await page.locator('.viewer-pass').click()
   await ready(page)
   await expect(page.locator('h1')).toHaveText('Кинозритель')
+  await page.locator('.profile-actions [data-action=edit-profile]').click()
+  await page.getByRole('radio',{name:'Синий',exact:true}).check()
+  await expect(page.locator('input[name=avatar_color][value=blue]')).toBeChecked()
 })
 
 test('mobile track exposes sections and every expanded state fits 320–760 px', async ({page}) => {
