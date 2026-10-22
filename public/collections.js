@@ -14,5 +14,5 @@ export const loadCollections = () => Promise.all(definitions.map(async definitio
 }))
 export const collectionBySlug = (collections, slug) => collections.find(collection => collection.slug === slug)
 export function collectionCards(collections) {
-  return `<div class="collection-grid">${collections.map(collection => html`<a class="collection-card" href="/collections/${collection.slug}"><div class="collection-cover">${collection.items.slice(0,4).map(item => poster(item)).join('')}<span class="cover-index">${collection.index}</span></div><div class="collection-card-heading"><h3>${esc(t(collection.name))}</h3>${icon('arrow-up-right')}</div><p>${collection.items.length} ${t('тайтлов')}<span>${t('Подборка Grade')}</span></p></a>`).join('')}</div>`
+  return `<div class="collection-grid">${collections.map(collection => html`<a class="collection-card" data-collection-slug="${collection.slug}" href="/collections/${collection.slug}"><div class="collection-cover">${collection.items.slice(0,4).map(item => poster(item)).join('')}</div><div class="collection-card-heading"><h3><span data-collection-title="${collection.slug}">${esc(t(collection.name))}</span></h3>${icon('arrow-up-right')}</div><p>${collection.items.length} ${t('тайтлов')}<span>${t('Подборка Grade')}</span></p></a>`).join('')}</div>`
 }

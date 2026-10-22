@@ -50,17 +50,28 @@ export function toast(message) {
     if (toastAnimation === animation) element.hidden = true
   },4000)
 }
+let modalReturnFocus = null
 export function openModal(content, { kind = 'default' } = {}) {
   const modal = document.querySelector('#modal')
+  const alreadyOpen = modal.open
+  if (!alreadyOpen) modalReturnFocus = document.activeElement
   modal.classList.toggle('track-auth',kind === 'auth')
   if (kind === 'auth') modal.setAttribute('aria-labelledby','auth-title')
   else modal.removeAttribute('aria-labelledby')
   document.querySelector('#modal-content').innerHTML = content
+  modal.querySelector('.modal-close-label').textContent = t('Закрыть')
   openDialog(modal)
+  if (alreadyOpen && kind === 'auth') motion(modal.querySelector('#modal-content'),[{opacity:0,translate:'0 8px'},{opacity:1,translate:'0 0'}],{duration:220})
   return modal
 }
 export function closeModal() {
-  closeDialog(document.querySelector('#modal'))
+  const modal = document.querySelector('#modal')
+  const auth = modal.classList.contains('track-auth')
+  closeDialog(modal,() => {
+    const target = modalReturnFocus?.isConnected ? modalReturnFocus : auth ? document.querySelector('#account button,#account a') : null
+    if (target && !target.closest('[inert]')) target.focus({preventScroll:true})
+    modalReturnFocus = null
+  })
 }
 export function empty(title, description, link = '/catalog', label = t('Каталог')) {
   return `<div class="empty-state">${icon('spark')}<h2>${esc(title)}</h2>${description ? `<p>${esc(description)}</p>` : ''}<a class="button primary" href="${esc(link)}">${esc(label)} ${icon('arrow')}</a></div>`

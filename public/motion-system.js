@@ -1,214 +1,282 @@
 import { gsap, Flip } from './assets/motion-vendor.js'
 
+/*
+ * Collection reparenting adapts Codrops ContentLayoutTransition (slideshow.js).
+ * Copyright (c) 2009 - 2021 Codrops. MIT License.
+ * Full notice: /assets/codrops-motion-LICENSE.txt
+ * Grade's router replaces the original wheel/touch Observer and scroll resets.
+ */
 gsap.registerPlugin(Flip)
-// Preserve the shared API; site motion is always enabled.
-export const reducedMotion = () => false
-const timing = { micro: .2, reveal: .45, page: .65 }
-let clearHeroMotion = () => {}
-function desktopHeroMotion(main) {
-  clearHeroMotion()
-  const art = main.querySelector('.hero-cinema')
-  if (!art) return
-  const footer = document.querySelector('.footer')
-  const move = gsap.quickTo(art,'y',{duration:.5,ease:'power2.out'})
-  const reveal = gsap.quickTo(footer,'y',{duration:.4,ease:'power2.out'})
-  const update = () => {
-    const enabled = innerWidth > 760 && !reducedMotion()
-    document.body.classList.toggle('parallax-home',enabled)
-    if (!enabled) {
-      document.body.style.removeProperty('--reveal-footer-height')
-      gsap.set([art,footer],{clearProps:'transform'})
-      footer.inert = false; footer.removeAttribute('aria-hidden'); return
-    }
-    const height = footer.offsetHeight
-    document.body.style.setProperty('--reveal-footer-height',`${height}px`)
-    move(Math.min(scrollY,innerHeight)*.2)
-    const remaining = document.documentElement.scrollHeight-innerHeight-scrollY
-    reveal(Math.max(0,Math.min(height,remaining)))
-    footer.inert = remaining >= height
-    if (footer.inert) footer.setAttribute('aria-hidden','true'); else footer.removeAttribute('aria-hidden')
-  }
-  window.addEventListener('scroll',update,{passive:true})
-  window.addEventListener('resize',update,{passive:true})
-  update()
-  clearHeroMotion = () => {
-    window.removeEventListener('scroll',update); window.removeEventListener('resize',update)
-    gsap.killTweensOf([art,footer]); gsap.set([art,footer],{clearProps:'transform'})
-    document.body.classList.remove('parallax-home'); document.body.style.removeProperty('--reveal-footer-height')
-    footer.inert = false; footer.removeAttribute('aria-hidden')
-  }
-}
-gsap.defaults({ ease: 'power2.out', overwrite: 'auto' })
+gsap.defaults({ ease:'power3.inOut', overwrite:'auto' })
+const preference = matchMedia('(prefers-reduced-motion: reduce)')
+export const reducedMotion = () => preference.matches
+const timing = { micro:.22, reveal:.6, page:.6, film:.58, collection:.85 }
 
-// Compatibility for existing toast calls; everything uses the GSAP clock.
 export function motion(element, frames, options = {}) {
   if (!element || reducedMotion()) return null
   const normalize = frame => {
-    const value = { ...frame }
-    delete value.offset
+    const value = { ...frame }; delete value.offset
     if (value.translate) {
-      const [x, y] = value.translate.split(' ')
+      const [x,y] = value.translate.split(' ')
       value.x = x; value.y = y || 0; delete value.translate
     }
     return value
   }
   let resolve
   const finished = new Promise(done => { resolve = done })
-  const tween = gsap.fromTo(element, normalize(frames[0]), {
-    ...normalize(frames.at(-1)), duration: (options.duration || 200) / 1000,
-    delay: (options.delay || 0) / 1000, onComplete: resolve, onInterrupt: resolve,
+  const tween = gsap.fromTo(element,normalize(frames[0]),{
+    ...normalize(frames.at(-1)), duration:(options.duration || 220)/1000,
+    delay:(options.delay || 0)/1000, onComplete:resolve, onInterrupt:resolve,
   })
   return { finished, cancel() { tween.kill(); resolve() } }
 }
 
-let observer, pageTween, mounted = false, cardState, sameComposition = false
-let requestedRoute = '', lastRoute = '', sources = [], floating = [], restoring = []
-const cleanFloating = () => {
-  floating.forEach(node => { gsap.killTweensOf(node); node.remove() })
-  restoring.forEach(node => { node.style.visibility = '' })
-  floating = []; restoring = []
+let observer, pageContext, pageTween, layoutTween, cardState, sharedState
+let mounted = false, sameComposition = false, requestedRoute = '', lastRoute = ''
+let pendingLink = null, shared = [], layer = null
+let filmTransition = false
+const collectionMemories = new Map()
+const visible = node => {
+  const box = node?.getBoundingClientRect()
+  return !!box?.width && !!box.height
 }
-
+const escaped = value => CSS.escape(String(value))
+const collectionSlug = route => /^\/collections\/([a-z-]+)$/.exec(route)?.[1]
+const titleRoute = route => /^\/title\/\d+$/.test(route)
+const decodeImages = nodes => {
+  const images = nodes.flatMap(node => node.matches('img') ? [node] : [...node.querySelectorAll('img')])
+  // Reuse live image nodes; missing and failed images must never block a route.
+  return Promise.allSettled(images.map(img => img.decode?.().catch(() => {}) || Promise.resolve()))
+}
+function clearLayer() { layer?.remove(); layer = null; shared = []; sharedState = null }
+function neutralizePosterImages(main) {
+  const images = main.querySelectorAll('.poster-placeholder img')
+  gsap.killTweensOf(images)
+  gsap.set(images,{clearProps:'transform,translate,scale'})
+}
+function stopPageEffects() {
+  observer?.disconnect(); observer = null
+  pageTween?.kill(); pageTween = null
+  layoutTween?.kill(); layoutTween = null
+  pageContext?.revert(); pageContext = null
+}
 export function prepareNavigation(link, route) {
-  requestedRoute = route.split('?')[0]
-  cleanFloating(); sources = []
-  if (reducedMotion()) return
-  const cover = link?.closest('.collection-card')
-  const poster = link?.closest('.title-card')?.querySelector('.poster-placeholder')
-  const detail = document.querySelector('.detail-poster .poster-placeholder')
-  const candidates = cover ? [...cover.querySelectorAll('[data-poster-id]')] : poster ? [poster] : detail ? [detail] : []
-  for (const node of candidates) {
-    const bounds = node.getBoundingClientRect()
-    if (bounds.width && bounds.bottom > 0 && bounds.top < innerHeight) sources.push({ node, bounds, id: node.dataset.posterId, rotation: parseFloat(getComputedStyle(node).rotate) || 0 })
+  requestedRoute = new URL(route,location.href).pathname
+  pendingLink = link
+}
+function sourcesFor(main) {
+  const incomingSlug = collectionSlug(requestedRoute)
+  const outgoing = main.querySelector('.collection-page')
+  const outgoingSlug = outgoing?.dataset.collectionSlug || collectionSlug(lastRoute)
+  const cover = pendingLink?.closest('.collection-card') || (incomingSlug && main.querySelector(`.collection-card[data-collection-slug="${escaped(incomingSlug)}"]`))
+  if (cover && incomingSlug) {
+    const posters = [...cover.querySelectorAll('.collection-cover [data-poster-id]')].slice(0,5)
+    collectionMemories.set(incomingSlug,posters.map(node => node.dataset.posterId))
+    return {kind:'collection',slug:incomingSlug,posters,title:cover.querySelector('[data-collection-title]')}
   }
+  if (outgoing && outgoingSlug && (requestedRoute === '/' || requestedRoute === '/collections')) {
+    const ids = collectionMemories.get(outgoingSlug) || [...outgoing.querySelectorAll('.poster-grid [data-poster-id]')].slice(0,4).map(node => node.dataset.posterId)
+    return {
+      kind:'collection',slug:outgoingSlug,
+      posters:ids.map(id => outgoing.querySelector(`.poster-grid [data-poster-id="${escaped(id)}"]`)).filter(Boolean),
+      title:outgoing.querySelector('[data-collection-title]'),
+    }
+  }
+  // A single title uses a quiet dissolve; only collections reparent images.
+  return {posters:[]}
 }
 
 export async function leavePage(main) {
-  clearHeroMotion()
-  observer?.disconnect(); pageTween?.kill(); gsap.killTweensOf(main)
   sameComposition = mounted && requestedRoute === lastRoute
+  filmTransition = mounted && !sameComposition && (titleRoute(requestedRoute) || titleRoute(lastRoute))
+  const outgoingOpacity = Number(getComputedStyle(main).opacity)
+  neutralizePosterImages(main)
   const cards = [...main.querySelectorAll('.title-card')]
   cards.forEach(card => { card.dataset.flipId = `card-${card.dataset.title}` })
-  cardState = sameComposition && !reducedMotion() ? Flip.getState(cards) : null
+  cardState = sameComposition && !reducedMotion() ? Flip.getState(cards,{kill:false}) : null
+  const candidates = !sameComposition && !reducedMotion() ? sourcesFor(main) : {posters:[]}
+  // Measure before stopping an in-flight tween, so repeated clicks start here.
+  const nodes = [...candidates.posters,candidates.title].filter(node => node && visible(node))
+  const measured = nodes.map(node => {
+    const style = getComputedStyle(node)
+    return {node,box:node.getBoundingClientRect(),font:style.font,letterSpacing:style.letterSpacing,lineHeight:style.lineHeight,color:style.color,borderRadius:style.borderRadius,id:node.dataset.posterId,title:node.hasAttribute('data-collection-title')}
+  })
+  stopPageEffects(); clearLayer()
+  main.querySelectorAll('[data-reveal]').forEach(node => node.removeAttribute('data-reveal'))
   if (!mounted || reducedMotion() || sameComposition) return
-  for (const { node, bounds, id, rotation } of sources) {
-    if (!node.isConnected) continue
-    const clone = node.cloneNode(true)
-    clone.removeAttribute('data-flip-id'); clone.classList.add('flying-poster')
-    clone.dataset.posterId = id; clone.setAttribute('aria-hidden', 'true')
-    const width = node.offsetWidth, height = node.offsetHeight
-    Object.assign(clone.style, { position: 'fixed', left: `${bounds.left+(bounds.width-width)/2}px`, top: `${bounds.top+(bounds.height-height)/2}px`, width: `${width}px`, height: `${height}px`, margin: '0', zIndex: '80', pointerEvents: 'none', borderRadius: getComputedStyle(node).borderRadius, transformOrigin: '50% 50%' })
-    document.body.append(clone); floating.push(clone)
-    gsap.set(clone, { rotation })
-    node.style.visibility = 'hidden'; restoring.push(node)
+  if (filmTransition) {
+    // Keep both scenes visible: the title never flies or vanishes into black.
+    // Reuse the current opacity if a fast Back interrupts the entrance.
+    gsap.set(main,{opacity:outgoingOpacity})
+    await new Promise(resolve => {
+      pageTween = gsap.to(main,{opacity:.55,duration:.18,ease:'power2.out',onComplete:resolve,onInterrupt:resolve})
+    })
+    return
+  }
+  if (measured.length) {
+    layer = document.createElement('div'); layer.className = 'collection-motion-layer'
+    layer.setAttribute('aria-hidden','true'); layer.inert = true; document.body.append(layer)
+    shared = measured.map(({node,box,font,letterSpacing,lineHeight,color,borderRadius,id,title}) => {
+      const spacer = node.cloneNode(false)
+      for (const name of ['id','data-poster-id','data-collection-title','data-flip-id']) spacer.removeAttribute(name)
+      spacer.style.visibility = 'hidden'; spacer.setAttribute('aria-hidden','true')
+      node.replaceWith(spacer); layer.append(node); gsap.killTweensOf(node)
+      node.dataset.motionOriginalStyle = node.getAttribute('style') || ''
+      Object.assign(node.style,{
+        position:'fixed',left:`${box.left}px`,top:`${box.top}px`,width:`${box.width}px`,height:`${box.height}px`,margin:'0',
+        transform:'none',translate:'none',rotate:'none',scale:'none',maxHeight:'none',maxWidth:'none',minWidth:'0',minHeight:'0',
+        font,letterSpacing,lineHeight,color,borderRadius,opacity:'1',zIndex:'1',
+      })
+      return {node,id,title,slug:candidates.slug,kind:candidates.kind}
+    })
+    // Codrops' measure -> reparent -> Flip.from pattern, bridged across the router.
+    sharedState = Flip.getState(shared.map(item => item.node),{props:'borderRadius,fontSize,lineHeight,letterSpacing',simple:true,kill:false})
+    void decodeImages(shared.map(item => item.node))
   }
   await new Promise(resolve => {
-    pageTween = gsap.to(main, { opacity: 0, duration: .12, onComplete: resolve, onInterrupt: resolve })
+    pageTween = gsap.to(main,{opacity:0,duration:.18,onComplete:resolve,onInterrupt:resolve})
   })
 }
 
+function mountShared(main) {
+  const incomingSlug = collectionSlug(location.pathname), transferred = []
+  // The router has now restored/reset native scroll. Recapture the fixed bridge
+  // against this scroll position before reparenting, avoiding a document-offset jump.
+  if (shared.length) sharedState = Flip.getState(shared.map(item => item.node),{props:'borderRadius,fontSize,lineHeight,letterSpacing',simple:true,kill:false})
+  for (const item of shared) {
+    const {node,id,title,slug,kind} = item
+    const scope = kind === 'collection'
+      ? incomingSlug ? main.querySelector('.collection-page') : main.querySelector(`.collection-card[data-collection-slug="${escaped(slug)}"]`)
+      : main
+    const target = title
+      ? scope?.querySelector(`[data-collection-title="${escaped(slug)}"]`)
+      : scope?.querySelector(kind === 'collection' ? `[data-poster-id="${escaped(id)}"]` : `.detail-poster [data-poster-id="${escaped(id)}"],.hero-poster [data-poster-id="${escaped(id)}"],.title-card [data-poster-id="${escaped(id)}"]`)
+    if (!target || !visible(target)) { node.remove(); continue }
+    const layoutStyle = target.getAttribute('style'); delete node.dataset.motionOriginalStyle
+    if (layoutStyle) node.setAttribute('style',layoutStyle); else node.removeAttribute('style')
+    gsap.set(node,{clearProps:'transform,translate,rotate,scale,opacity,width,height,position,top,left,minWidth,minHeight,maxWidth,maxHeight'})
+    target.replaceWith(node); transferred.push(node)
+  }
+  const state = sharedState, collection = shared.some(item => item.kind === 'collection')
+  layer?.remove(); layer = null; shared = []; sharedState = null
+  if (transferred.length && state) {
+    const titles = transferred.filter(node => node.hasAttribute('data-collection-title'))
+    const posters = transferred.filter(node => !node.hasAttribute('data-collection-title'))
+    const common = {duration:collection ? timing.collection : timing.page,ease:collection ? 'expo.inOut' : 'power3.inOut',nested:true,prune:true}
+    layoutTween = gsap.timeline({onComplete:() => { layoutTween = null }})
+    if (posters.length) layoutTween.add(Flip.from(state,{...common,targets:posters,props:'borderRadius',scale:true,stagger:collection ? .035 : 0}),0)
+    // Typography changes its real size/line width; letters never stretch like an image.
+    if (titles.length) layoutTween.add(Flip.from(state,{...common,targets:titles,props:'fontSize,lineHeight,letterSpacing',scale:false}),0)
+  }
+  return transferred
+}
+
 export function mountMotion(main) {
-  desktopHeroMotion(main)
   observer?.disconnect(); pageTween?.kill(); mounted = true
-  lastRoute = location.pathname; requestedRoute = location.pathname
-  gsap.set(main, { opacity: 1, clearProps: 'transform' })
+  const calmFilm = filmTransition || titleRoute(location.pathname)
+  filmTransition = false
+  lastRoute = location.pathname; requestedRoute = location.pathname; pendingLink = null
+  gsap.set(main,{opacity:1,clearProps:'transform'})
+  neutralizePosterImages(main)
   const cards = [...main.querySelectorAll('.title-card')]
   cards.forEach(card => { card.dataset.flipId = `card-${card.dataset.title}` })
-  if (reducedMotion()) { cleanFloating(); sources = []; cardState = null; syncNavigation(); return }
+  if (reducedMotion()) {
+    clearLayer(); cardState = null
+    main.querySelectorAll('[data-reveal]').forEach(node => node.removeAttribute('data-reveal'))
+    syncNavigation(); return
+  }
+  const transferred = mountShared(main)
+  const containsShared = node => transferred.some(image => node === image || node.contains(image))
   if (cardState && sameComposition) {
-    Flip.from(cardState, {
-      targets: cards, duration: timing.reveal, absolute: true, scale: true,
-      onEnter: elements => gsap.fromTo(elements, { opacity: 0 }, { opacity: 1, duration: .25, delay: .08 }),
+    layoutTween = Flip.from(cardState,{
+      targets:cards,duration:.55,ease:'power3.inOut',absolute:true,scale:true,fade:true,
+      onEnter:elements => gsap.fromTo(elements,{opacity:0},{opacity:1,duration:.22,delay:.12}),
     })
   } else {
-    pageTween = gsap.fromTo(main, { opacity: .45 }, { opacity: 1, duration: .25 })
-    const headings = main.querySelectorAll('.hero-kicker,.hero h1,.hero-description,.hero-actions,.hero-note,.page-heading,.title-kicker,.title-info>h1,.original-name,.profile-heading')
-    if (headings.length) gsap.from(headings, { y: 14, opacity: 0, duration: timing.reveal, stagger: .03, clearProps: 'transform,opacity' })
-    const reveal = main.querySelectorAll('.title-card,.collection-card,.section-heading,.profile-review,.discussion-item,.onboard-card,.archive-note,.personal-collection')
+    pageContext = gsap.context(() => {
+      if (calmFilm) {
+        gsap.fromTo(main,{opacity:.55},{opacity:1,duration:timing.film,ease:'power2.out',clearProps:'opacity'})
+        const composition = main.querySelectorAll('.title-sidebar,.title-info,.page-heading,.hero-content,.hero-posters,.profile-heading')
+        if (composition.length) gsap.from(composition,{y:8,duration:timing.film,ease:'power2.out',stagger:.025,clearProps:'transform'})
+      } else {
+        if (!transferred.length) gsap.fromTo(main,{opacity:.35},{opacity:1,duration:.5})
+        const headings = [...main.querySelectorAll('.hero-kicker,.hero h1,.hero-description,.hero-actions,.hero-note,.hero-posters .hero-poster,.page-heading,.title-kicker,.title-info>h1,.original-name,.profile-heading')].filter(node => !containsShared(node))
+        if (headings.length) gsap.from(headings,{y:18,opacity:0,duration:timing.reveal,stagger:.04,clearProps:'transform,opacity'})
+      }
+    },main)
     observer = new IntersectionObserver(entries => {
       let delay = 0
       for (const entry of entries) if (entry.isIntersecting) {
         const node = entry.target; node.removeAttribute('data-reveal')
-        gsap.from(node, { y: 16, opacity: 0, duration: timing.reveal, delay: Math.min(delay++ * .03, .12), clearProps: 'transform,opacity' })
-        observer.unobserve(node)
+        pageContext?.add(() => gsap.from(node,{y:calmFilm ? 8 : 16,opacity:0,duration:calmFilm ? timing.film : timing.reveal,ease:calmFilm ? 'power2.out' : 'power3.inOut',delay:Math.min(delay++*.04,.16),clearProps:'transform,opacity'}))
+        observer?.unobserve(node)
       }
-    }, { threshold: .03 })
-    reveal.forEach(node => { node.dataset.reveal = 'pending'; observer.observe(node) })
-  }
-  for (const clone of floating) {
-    const id = clone.dataset.posterId
-    const target = main.querySelector(`.detail-poster [data-poster-id="${CSS.escape(id)}"],.title-card [data-poster-id="${CSS.escape(id)}"]`)
-    if (!target) { gsap.to(clone, { opacity: 0, duration: .2, onComplete: () => clone.remove() }); continue }
-    target.style.visibility = 'hidden'; restoring.push(target)
-    const vars = Flip.fit(clone, target, { getVars: true, scale: true })
-    gsap.to(clone, { ...vars, duration: timing.page - .12, overwrite: true,
-      onComplete: () => { target.style.visibility = ''; clone.remove() },
+    },{threshold:.03})
+    main.querySelectorAll('.title-card,.collection-card,.section-heading,.profile-review,.discussion-item,.onboard-card,.archive-note,.personal-collection').forEach(node => {
+      if (!containsShared(node)) { node.dataset.reveal = 'pending'; observer.observe(node) }
+    })
+    if (transferred.length) pageContext.add(() => {
+      const captions = [...new Set(transferred.map(node => node.closest('.title-card')?.querySelector('.card-info')).filter(Boolean))]
+      if (captions.length) gsap.from(captions,{y:8,opacity:0,duration:.55,delay:.3,stagger:.04,clearProps:'transform,opacity'})
     })
   }
-  sources = []; cardState = null; syncNavigation()
+  void decodeImages([...main.querySelectorAll('.hero .poster-placeholder,.collection-cover')])
+  cardState = null; syncNavigation()
 }
 
-export function syncNavigation() {
-  for (const nav of document.querySelectorAll('.desktop-nav,.mobile-nav')) {
-    const active = nav.querySelector('a.active')
-    let indicator = nav.querySelector('.nav-indicator')
-    if (!indicator) { indicator = document.createElement('span'); indicator.className = 'nav-indicator'; indicator.setAttribute('aria-hidden', 'true'); nav.append(indicator) }
-    if (!active || !nav.offsetWidth) { indicator.style.opacity = '0'; continue }
-    gsap.to(indicator, { x: active.offsetLeft, y: active.offsetTop, width: active.offsetWidth, height: active.offsetHeight, opacity: 1, duration: reducedMotion() ? 0 : .45 })
-    nav.dataset.ready = 'true'
-  }
-  document.dispatchEvent(new Event('grade:navigation'))
-}
-const resize = new ResizeObserver(syncNavigation)
-document.querySelectorAll('.desktop-nav,.mobile-nav').forEach(nav => resize.observe(nav))
+// The fullscreen header owns its animation; preserve the router's event/API.
+export function syncNavigation() { document.dispatchEvent(new Event('grade:navigation')) }
 document.fonts?.ready.then(syncNavigation)
 
-// Native dialog focus management is preserved. Closing reverses the same timeline.
-const dialogs = new WeakMap()
+const dialogs = new WeakMap(), activeDialogs = new Set()
 export function openDialog(dialog) {
   const old = dialogs.get(dialog)
-  if (old) { document.dispatchEvent(new CustomEvent('grade:dialog-open', { detail:dialog })); old.timeline.play(); return }
   if (!dialog.open) dialog.showModal()
-  document.dispatchEvent(new CustomEvent('grade:dialog-open', { detail:dialog }))
-  if (reducedMotion()) return
-  const timeline = gsap.timeline({ paused: true })
-    .fromTo(dialog, { opacity: 0, y: 18, scale: .985, '--backdrop-opacity': 0 }, { opacity: 1, y: 0, scale: 1, '--backdrop-opacity': 1, duration: .4 })
-  dialogs.set(dialog, { timeline }); timeline.play()
+  document.dispatchEvent(new CustomEvent('grade:dialog-open',{detail:dialog}))
+  if (old) { old.closing = false; old.timeline.eventCallback('onReverseComplete',null).play(); return }
+  if (reducedMotion()) { gsap.set(dialog,{'--backdrop-opacity':1}); return }
+  const sidePanel = dialog.classList.contains('track-auth')
+  const timeline = gsap.timeline({paused:true}).fromTo(dialog,
+    {opacity:sidePanel ? 1 : 0,xPercent:sidePanel ? 100 : 0,y:sidePanel ? 0 : 14,'--backdrop-opacity':0},
+    {opacity:1,xPercent:0,y:0,'--backdrop-opacity':1,duration:.6,ease:'power3.inOut'})
+  dialogs.set(dialog,{timeline,closing:false}); activeDialogs.add(dialog); timeline.play()
 }
 export function closeDialog(dialog, after = () => {}) {
   if (!dialog.open) return
-  document.dispatchEvent(new CustomEvent('grade:dialog-close', { detail:dialog }))
+  document.dispatchEvent(new CustomEvent('grade:dialog-close',{detail:dialog}))
   const state = dialogs.get(dialog)
-  const finish = () => { dialog.close(); state?.timeline.kill(); dialogs.delete(dialog); gsap.set(dialog, { clearProps: 'all' }); after() }
+  const finish = () => {
+    dialog.close(); state?.timeline.kill(); dialogs.delete(dialog); activeDialogs.delete(dialog)
+    gsap.set(dialog,{clearProps:'transform,opacity,--backdrop-opacity'}); after()
+  }
   if (reducedMotion() || !state) { finish(); return }
-  state.timeline.eventCallback('onReverseComplete', finish).reverse()
+  state.closing = true; state.finish = finish
+  state.timeline.eventCallback('onReverseComplete',finish).reverse()
 }
 
 let pressed = null
 function release() {
-  if (pressed) gsap.to(pressed.node, { [pressed.property]: 1, duration: reducedMotion() ? 0 : timing.micro, clearProps: pressed.property === 'scale' ? 'transform' : 'opacity' })
+  if (pressed) gsap.to(pressed,{opacity:1,duration:reducedMotion() ? 0 : timing.micro,clearProps:'opacity'})
   pressed = null
 }
-document.addEventListener('pointerdown', event => {
+document.addEventListener('pointerdown',event => {
   const node = event.target.closest('button,.button')
-  if (!node || node.disabled || event.button !== 0 || reducedMotion() || node.closest('.track-header,.track-auth')) return
-  const property = event.pointerType === 'touch' ? 'opacity' : 'scale'
-  pressed = { node, property }; gsap.to(node, { [property]: property === 'opacity' ? .7 : .975, duration: .15 })
-}, { passive: true })
-document.addEventListener('pointerup', release, { passive: true })
-document.addEventListener('pointercancel', release, { passive: true })
-window.addEventListener('blur', release)
-function cardInteraction(event, active) {
-  const card = event.target.closest('.title-card,.collection-card,.discovery-card')
-  if (!card || (event.relatedTarget instanceof Node && card.contains(event.relatedTarget)) || reducedMotion()) return
-  const images = card.querySelectorAll('.poster-placeholder img')
-  if (images.length) gsap.to(images, { scale: active ? 1.035 : 1, duration: timing.micro })
-  const actions = card.querySelector('.card-actions')
-  if (actions && matchMedia('(hover: hover)').matches) gsap.to(actions, { opacity: active ? 1 : .8, y: active ? 0 : 3, duration: timing.micro })
-}
-document.addEventListener('pointerover', event => { if (event.pointerType !== 'touch') cardInteraction(event, true) })
-document.addEventListener('pointerout', event => { if (event.pointerType !== 'touch') cardInteraction(event, false) })
-document.addEventListener('focusin', event => cardInteraction(event, true))
-document.addEventListener('focusout', event => cardInteraction(event, false))
-// Preserve native iPhone scrolling and edge-back gestures without pointer capture.
+  if (!node || node.disabled || event.button !== 0 || reducedMotion() || node.closest('.track-header')) return
+  release(); pressed = node; gsap.to(node,{opacity:.62,duration:.18})
+},{passive:true})
+document.addEventListener('pointerup',release,{passive:true})
+document.addEventListener('pointercancel',release,{passive:true})
+window.addEventListener('blur',release)
+preference.addEventListener('change',() => {
+  if (!reducedMotion()) return
+  layoutTween?.progress(1); pageTween?.progress(1); pageContext?.revert(); pageContext = null
+  observer?.disconnect(); observer = null
+  document.querySelectorAll('[data-reveal]').forEach(node => node.removeAttribute('data-reveal'))
+  gsap.set(document.querySelectorAll('.poster-placeholder img,.card-actions'),{clearProps:'transform,opacity'})
+  for (const dialog of activeDialogs) {
+    const state = dialogs.get(dialog)
+    if (state?.closing) state.finish(); else state?.timeline.progress(1)
+  }
+})
+// Keep native iPhone scrolling and edge-back gestures, without pointer capture.
 export function enableGestures() { history.scrollRestoration = 'manual' }

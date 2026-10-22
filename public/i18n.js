@@ -1,5 +1,19 @@
 // Translation operates on trusted UI literals, never on interpolated profile or post content
 const messages = {
+  "Поиск /": "Search /",
+  "Меню": "Menu",
+  "МЕНЮ": "MENU",
+  "Ищите то, что останется.": "Find something that stays.",
+  "Название, которое ищете.": "The title you are looking for.",
+  "Кино, которое близко.": "Cinema that feels close.",
+  "Личная коллекция кино": "A personal film collection",
+  "Из коллекции Grade": "From the Grade collection",
+  "Фильмы · Аниме · Сериалы": "Films · Anime · Series",
+  "Кино,": "Cinema",
+  "которое": "that",
+  "остаётся.": "stays.",
+  "Истории, из которых складывается ваш вкус.": "Stories that shape your taste.",
+  "Найти своё": "Find your next favourite",
   "ПРОПУСК ЗРИТЕЛЯ": "VIEWER PASS",
   "Найти кадр": "Find a frame",
   "Название фильма, аниме или сериала": "Movie, anime or series title",
@@ -353,7 +367,7 @@ export function applyShell() {
   document.documentElement.lang = current
   const labels = { '/':'Обзор', '/collections':'Подборки', '/catalog':'Каталог', '/me':'Профиль', '/me?tab=planned':'В планах', '/me?tab=watched':'Смотрел', '/me?tab=ratings':'Оценки' }
   document.querySelectorAll('.desktop-nav a,.mobile-nav a').forEach(link => { link.querySelector('.track-label').textContent = t(link.getAttribute('href') === '/me' ? 'Моя коллекция' : labels[link.getAttribute('href')]) })
-  document.querySelector('.search-trigger-label').textContent = t('Найти кадр')
+  document.querySelector('.search-trigger-label').textContent = t('Поиск /')
   document.querySelector('.search-close').setAttribute('aria-label',t('Закрыть поиск'))
   document.querySelector('.search-submit').setAttribute('aria-label',t('Все результаты'))
   document.querySelector('#search-tray').setAttribute('aria-label',t('Результаты поиска'))
@@ -361,7 +375,7 @@ export function applyShell() {
   document.querySelector('.skip-link').textContent = t('К содержимому')
   document.querySelector('.header .brand').setAttribute('aria-label',t('Grade — главная'))
   document.querySelector('.desktop-nav').setAttribute('aria-label',t('Основная навигация'))
-  document.querySelector('.mobile-nav').setAttribute('aria-label',t('Мобильная навигация'))
+  document.querySelector('.scene-nav').setAttribute('aria-label',t('Основная навигация'))
   document.querySelector('label[for=search]').textContent = t('Найти аниме, фильм или сериал')
   document.querySelector('#search').placeholder = t('Название фильма, аниме или сериала')
   document.querySelector('.modal-close').setAttribute('aria-label',t('Закрыть'))
@@ -371,7 +385,7 @@ export function applyShell() {
   document.querySelector('.credits').innerHTML = html`Данные: <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer">TMDB</a><br><a href="/about">О проекте</a>`
   document.querySelector('meta[name=description]').content = t('Оценки, отзывы и списки просмотренного для аниме, фильмов и сериалов')
   const button = document.querySelector('#language-switch')
-  button.textContent = current === 'ru' ? 'EN' : 'RU'
+  button.textContent = current === 'ru' ? 'English' : 'Русский'
   button.setAttribute('aria-label',current === 'ru' ? 'Switch to English' : 'Переключить на русский')
   const mobileLanguage = document.querySelector('.mobile-language')
   mobileLanguage.textContent = current === 'ru' ? 'English' : 'Русский'
