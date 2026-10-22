@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg">
+  <!-- Use the existing favicon mark as the brand's actual vector artwork. -->
+  <symbol id="brand" viewBox="10 8 44 44"><path fill="currentColor" stroke="none" d="m29 10 6 0 0 14 12-7 3 6-12 7 12 7-3 6-12-7 0 14-6 0 0-14-12 7-3-6 12-7-12-7 3-6 12 7z"/></symbol>
+  <symbol id="play" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M7 4.8c0-.8.9-1.3 1.6-.9l12 7.2a1 1 0 0 1 0 1.8l-12 7.2c-.7.4-1.6-.1-1.6-.9Z"/></symbol>
+  <symbol id="arrow-up-right" viewBox="0 0 24 24"><path d="M6 18 18 6M6 6h12v12"/></symbol>
+  <symbol id="arrow-left" viewBox="0 0 24 24"><path d="M20 12H4m6-6-6 6 6 6"/></symbol>
+  <symbol id="search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></symbol>
+  <symbol id="close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+  <symbol id="reply" viewBox="0 0 24 24"><path d="M5 4v8a4 4 0 0 0 4 4h11m-5-5 5 5-5 5"/></symbol>
+</svg>

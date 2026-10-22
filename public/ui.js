@@ -1,6 +1,7 @@
 import { t, html, language, errorMessage } from './i18n.js'
 import { motion, reducedMotion } from './motion.js'
 const icons = {
+  ...Object.fromEntries(['brand','play','arrow-up-right','arrow-left','search','close','reply'].map(name => [name, `<use href="/icons.svg#${name}"/>`])),
   star: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z"/>',
   check: '<path d="m5 12 4 4L19 6"/>', plus: '<path d="M12 5v14M5 12h14"/>',
   bookmark: '<path d="M6 4h12v17l-6-4-6 4V4Z"/>',
@@ -10,7 +11,7 @@ const icons = {
   spark: '<path d="m12 2 3 7 7 3-7 3-3 7-3-7-7-3 7-3Z"/>',
   settings: '<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>',
 }
-export const icon = (name, cls = '') => `<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] || icons.film}</svg>`
+export const icon = (name, cls = '') => `<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${icons[name] || icons.film}</svg>`
 export const esc = (value = '') => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c])
 export const kindName = (kind) => ({ anime:t('Аниме'), movie:t('Фильм'), series:t('Сериал') })[kind] || t('Тайтл')
 export const avatar = (name = '', color = 'lime', photo = '') => `<span class="avatar" data-color="${['lime','violet','blue','orange','pink','gray'].includes(color) ? color : 'lime'}" aria-hidden="true">${esc([...name.trim()][0]?.toUpperCase() || 'G')}${/^\/api\/avatars\/[a-zA-Z0-9_-]+\/[0-9a-f-]{36}$/.test(photo) ? `<img src="${esc(photo)}" alt="" decoding="async">` : ''}</span>`

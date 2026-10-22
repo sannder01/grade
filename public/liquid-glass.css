@@ -1,0 +1,101 @@
+/* Glass belongs to the controls, while posters and reading surfaces stay crisp.
+   These are also the fallback surfaces when the optional island is unavailable. */
+.desktop-nav {
+  position:relative;
+  isolation:isolate;
+  height:46px;
+  padding:0 16px;
+  gap:22px;
+  border:1px solid #ffffff1c;
+  border-radius:999px;
+  background:linear-gradient(135deg,#ffffff0e,#ffffff03);
+  box-shadow:inset 0 1px 0 #ffffff19,0 8px 24px #0002
+}
+.desktop-nav a.active { color:var(--accent) }
+.desktop-nav a.active:after { left:20%; right:20%; bottom:5px; border-radius:9px }
+.header-search {
+  position:relative;
+  isolation:isolate;
+  min-height:42px;
+  border-color:#ffffff26;
+  background:linear-gradient(135deg,#ffffff0c,#ffffff04);
+  box-shadow:inset 0 1px 0 #ffffff16
+}
+.header-search:focus-within { outline:2px solid var(--accent); outline-offset:3px }
+.hero-feature {
+  isolation:isolate;
+  padding:18px 22px;
+  border:1px solid #ffffff33;
+  border-radius:22px;
+  background:linear-gradient(135deg,#ffffff1a,#ffffff05),#121b1780;
+  -webkit-backdrop-filter:blur(12px) saturate(125%);
+  backdrop-filter:blur(12px) saturate(125%);
+  box-shadow:0 16px 40px #0003,inset 0 1px 0 #ffffff24
+}
+.hero-feature>span:last-child { font-size:11px }
+.trailer-play { isolation:isolate }
+
+.liquid-glass-layer {
+  position:absolute;
+  inset:0;
+  z-index:-1;
+  display:block;
+  border-radius:inherit;
+  pointer-events:none;
+  /* Keep the library's enlarged SVG filter region inside the control. */
+  overflow:hidden
+}
+.liquid-glass-layer * { pointer-events:none !important }
+.liquid-glass-layer,.liquid-glass-layer span { margin:0 !important }
+.liquid-glass-layer>.grade-liquid-surface>.glass { width:100%; height:100%; box-shadow:none !important }
+.liquid-glass-layer>.grade-liquid-surface>.glass>div { width:100%; height:100% }
+/* The upstream package uses Tailwind utilities for these two hidden layers. */
+.liquid-glass-layer>.opacity-0 { opacity:0 }
+.liquid-glass-layer>span { opacity:.45 }
+.mobile-nav .liquid-glass-layer .glass::after {
+  content:'';
+  position:absolute;
+  inset:0;
+  background:linear-gradient(120deg,#152116b3,#1521168c)
+}
+.liquid-glass-ready:is(.hero-feature,.mobile-nav,.trailer-play) {
+  -webkit-backdrop-filter:none;
+  backdrop-filter:none
+}
+.liquid-glass-ready.desktop-nav { background:linear-gradient(135deg,#ffffff10,#ffffff04) }
+.liquid-glass-ready.header-search { background:#1b211a66 }
+.liquid-glass-ready.hero-feature { background:linear-gradient(135deg,#ffffff12,#ffffff03),#111c1659 }
+.liquid-glass-ready.mobile-nav { background:linear-gradient(135deg,#ffffff16,#ffffff05),#182019b3 }
+.liquid-glass-ready.trailer-play { background:linear-gradient(135deg,#ffffff4d,#ffffff0a),#d6ec8933 }
+
+@media(min-width:761px) and (max-width:1150px) {
+  .header-inner { gap:18px }
+  .desktop-nav { gap:14px; padding-inline:12px }
+}
+@media(min-width:761px) and (max-width:950px) {
+  .header-inner { gap:12px }
+  .desktop-nav { gap:10px; padding-inline:10px }
+}
+@media(max-width:760px) {
+  .desktop-nav { display:none }
+  .hero-feature { right:24px; bottom:24px; padding:14px 18px; max-width:230px }
+}
+@media(max-width:560px) {
+  .hero { min-height:400px }
+  .hero-content { padding-bottom:130px }
+  .hero-feature { left:22px; right:22px; bottom:22px; max-width:none; padding:13px 17px }
+  .hero-feature strong { font-size:17px }
+  .hero-feature>span:last-child { font-size:10px; margin-top:4px }
+  .hero-feature .icon { margin-left:16px }
+}
+@media(prefers-reduced-motion:reduce) {
+  .liquid-glass-layer * { transition:none !important; animation:none !important }
+}
+@media(prefers-reduced-transparency:reduce) {
+  .liquid-glass-layer { display:none }
+  :is(.desktop-nav,.header-search,.hero-feature,.mobile-nav,.trailer-play) {
+    background:#20271f !important;
+    -webkit-backdrop-filter:none;
+    backdrop-filter:none
+  }
+}

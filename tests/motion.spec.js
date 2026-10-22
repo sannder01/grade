@@ -98,6 +98,9 @@ test('elastic controls follow a drag, spring back without clicking, and respect 
   await page.goto('/')
   const control = page.locator('.hero-actions .button')
   await control.hover()
+  // Hover can start native smooth scrolling while the hero finishes appearing.
+  // End that scroll before taking coordinates for the manual pointer gesture.
+  await control.evaluate(element => element.scrollIntoView({ behavior:'instant', block:'center' }))
   const box = await control.boundingBox(), x = box.x+box.width/2, y = box.y+box.height/2
   await page.mouse.move(x,y)
   await page.mouse.down()

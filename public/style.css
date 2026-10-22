@@ -245,6 +245,18 @@ img {
   font-size:33px;
   line-height:1
 }
+.brand>span { display:inline-flex; align-items:center }
+.brand>span>.icon { width:1em; height:1em }
+.header-search>span:not(.liquid-glass-layer) { display:inline-flex; align-items:center }
+.header-search>span>.icon { width:18px; height:18px }
+.login-button span>.icon { width:16px; height:16px }
+.auth-mark>.icon { width:1em; height:1em }
+.onboarding-banner>span>.icon { width:1em; height:1em }
+.modal-close.icon-button { display:grid; place-items:center }
+.back-link>.icon { width:14px; height:14px; margin-right:4px }
+.onboard-skip>.icon { width:13px; height:13px; margin-left:4px }
+.reply-to>.icon { width:13px; height:13px; margin-right:4px }
+.source-rating span>.icon { width:11px; height:11px; margin-left:3px }
 .desktop-nav {
   display:flex;
   gap:26px;
@@ -3263,7 +3275,7 @@ body { background:radial-gradient(ellipse at 85% 0,#ff8c3609,transparent 55%),va
   letter-spacing:.15em;
   text-shadow:0 2px 12px #000b
 }
-.trailer-eyebrow span { color:var(--accent); font-size:16px; line-height:1 }
+.trailer-eyebrow>.icon { color:var(--accent); width:16px; height:16px }
 .trailer-play {
   position:absolute;
   top:50%;
@@ -3282,7 +3294,7 @@ body { background:radial-gradient(ellipse at 85% 0,#ff8c3609,transparent 55%),va
   transition:scale .55s var(--ease-out),box-shadow .55s var(--ease-out),background .3s ease;
   z-index:1
 }
-.trailer-play span { color:#f9ffea; font-size:27px; margin-left:5px; text-shadow:0 2px 10px #0007 }
+.trailer-play>.icon { color:#f9ffea; width:30px; height:30px; margin-left:3px; filter:drop-shadow(0 2px 5px #0007) }
 .trailer-play:hover,.trailer-play:focus-visible {
   scale:1.13;
   box-shadow:0 22px 50px #0009,inset 0 2px 3px #ffffffc0,inset 0 -8px 20px #283b2360,0 0 0 18px #ffffff19
@@ -3336,12 +3348,15 @@ body { background:radial-gradient(ellipse at 85% 0,#ff8c3609,transparent 55%),va
 .trailer-dialog-head { padding:0 6px 17px }
 .trailer-dialog-mark { font-size:12px; font-weight:800; letter-spacing:.08em }
 .trailer-dialog-mark span { color:var(--accent) }
+.trailer-dialog-mark span>.icon { width:16px; height:16px }
 .trailer-dialog-close { display:grid; place-items:center; width:38px; height:38px; border:1px solid #ffffff31; border-radius:50%; background:#ffffff11; font-size:27px; line-height:1; transition:background .25s,transform .35s var(--ease-out) }
 .trailer-dialog-close:hover { background:#ffffff27; transform:rotate(90deg) }
 .trailer-screen { position:relative; overflow:hidden; aspect-ratio:16 / 9; border:1px solid #ffffff28; border-radius:clamp(18px,3vw,32px); background:#050805; box-shadow:0 25px 55px #0008,inset 0 0 24px #000 }
 .trailer-screen iframe { display:block; width:100%; height:100%; border:0 }
 .trailer-dialog-foot { padding:16px 8px 2px; color:#c9d4c7; font-size:12px; font-weight:700 }
 .trailer-external { color:var(--accent); font-size:10px; white-space:nowrap }
+.trailer-external { display:inline-flex; align-items:center; gap:5px }
+.trailer-external>.icon { width:13px; height:13px }
 .trailer-external:hover { text-decoration:underline; text-underline-offset:3px }
 @media(max-width:760px) {
   .trailer-view { min-height:230px }
@@ -3355,7 +3370,7 @@ body { background:radial-gradient(ellipse at 85% 0,#ff8c3609,transparent 55%),va
   .trailer-eyebrow { top:17px; left:19px; font-size:8px }
   .trailer-meta { left:19px; right:19px; bottom:16px }
   .trailer-play { width:65px; height:65px }
-  .trailer-play span { font-size:21px }
+  .trailer-play>.icon { width:24px; height:24px }
   .trailer-clip-name { display:none }
   .trailer-dialog { width:calc(100vw - 16px) }
   .trailer-dialog-shell { padding:9px; border-radius:26px }

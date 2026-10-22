@@ -2,7 +2,7 @@
 const messages = {
   "Трейлер": "Trailer",
   "Смотреть трейлер": "Watch trailer",
-  "Открыть на YouTube ↗": "Open on YouTube ↗",
+  "Открыть на YouTube": "Open on YouTube",
   "Закрыть трейлер": "Close trailer",
   "Просмотр трейлера": "Watch trailer",
   "Неверный текущий пароль": "Incorrect current password",
@@ -285,7 +285,7 @@ export function applyShell() {
   document.querySelector('.modal-close').setAttribute('aria-label',t('Закрыть'))
   document.querySelector('#trailer-dialog').setAttribute('aria-label',t('Просмотр трейлера'))
   document.querySelector('.trailer-dialog-close').setAttribute('aria-label',t('Закрыть трейлер'))
-  document.querySelector('.trailer-external').textContent = t('Открыть на YouTube ↗')
+  document.querySelector('.trailer-external-label').textContent = t('Открыть на YouTube')
   document.querySelector('.credits').innerHTML = html`Данные: <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer">TMDB</a><br><a href="/about">О проекте</a>`
   document.querySelector('meta[name=description]').content = t('Оценки, отзывы и списки просмотренного для аниме, фильмов и сериалов')
   const button = document.querySelector('#language-switch')
