@@ -46,7 +46,7 @@ test('glass dock survives viewport changes, language changes and reduced motion'
   }
   await page.emulateMedia({ reducedMotion:'reduce' })
   await page.setViewportSize({ width:390, height:844 })
-  await dock.getByRole('link', { name:'Overview', exact:true }).click()
+  await dock.getByRole('link', { name:'Explore', exact:true }).click()
   await expect(page.locator('.hero-feature.liquid-glass-ready')).toBeVisible()
   expect(await page.evaluate(() => document.getAnimations().some(animation => animation.playState === 'running' && animation.effect.getTiming().duration > 1))).toBe(false)
   expect(errors).toEqual([])

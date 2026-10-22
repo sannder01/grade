@@ -13,6 +13,6 @@ await build({
   banner: { js: '/*! Third-party notices: /assets/liquid-glass.LICENSE.txt */' },
 })
 const licenses = await Promise.all(['liquid-glass-react', 'react', 'react-dom', 'scheduler'].map(async name =>
-  `${name}\n${await readFile(`node_modules/${name}/LICENSE`, 'utf8')}`))
+  `${name}\n${(await readFile(`node_modules/${name}/LICENSE`, 'utf8')).replace(/\r\n/g, '\n')}`))
 await writeFile('public/assets/liquid-glass.LICENSE.txt', licenses.join('\n\n---\n\n'))
 console.log('Built the optional liquid-glass-react island')
