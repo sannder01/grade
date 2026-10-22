@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { toNodeHandler, fromNodeHeaders } from 'better-auth/node'
 import { query, transaction } from './db.mjs'
 import { catalog, titleById, externalSearch, importTitle } from './catalog.mjs'
+import { discover } from './discover.mjs'
 import { HttpError, text, id, score, boolean, page, spoilerContent } from './validation.mjs'
 import { getTrustedOrigins } from './origins.mjs'
 import { localeFor, localizeTitles } from './localization.mjs'
@@ -114,6 +115,10 @@ export function createApp(auth) {
     const data = await catalog(req.query, req.user?.id)
     res.json({ ...data, items: await localizeTitles(data.items, req.locale) })
   })
+  app.get('/api/catalog/discover', async (req, res) => {
+    await limitRequests(`discover:${req.user?.id || req.ip}`, 30)
+    res.json(await discover(req.query, req.locale))
+  })
   app.get('/api/catalog/external', async (req, res) => {
     const search = text(req.query.q, { min: 2, max: 100, label: 'Поиск' })
     await limitRequests(`search:${req.user?.id || req.ip}`, 30)
@@ -121,7 +126,7 @@ export function createApp(auth) {
     res.json({ items: await externalSearch(search, kind, req.locale) })
   })
   app.post('/api/catalog/import', async (req, res) => {
-    await write(req)
+    await limitRequests(`import:${req.user?.id || req.ip}`, 10)
     res.json(await importTitle(text(req.body.external_id, { max: 40 })))
   })
   app.get('/api/titles/:id', async (req, res) => res.json((await localizeTitles([await titleById(req.params.id, req.user?.id)], req.locale))[0]))

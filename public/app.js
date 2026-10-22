@@ -108,7 +108,7 @@ async function homePage() {
   const result = await api('/api/catalog?sort=popular')
   const featured = result.items[0]
   if (!featured) return empty(t('Каталог пуст'), t('Загляните позже'))
-  return html`<section class="hero container"><div class="hero-backdrop" style="background-image:url('${esc(featured.backdrop)}')"></div><div class="hero-content"><h1>Ваши<br><span>оценки</span></h1><p>Аниме, фильмы и сериалы</p><div class="hero-actions"><a href="/catalog" class="button primary">Каталог ${icon('arrow')}</a><a href="/start" class="text-link">Просмотренное</a></div></div><a href="/title/${featured.id}" class="hero-feature"><strong>${esc(featured.name)}</strong><span>${featured.year} · ${kindName(featured.kind)} ${icon('arrow')}</span></a></section>
+  return html`<section class="hero container"><div class="hero-backdrop" style="background-image:url('${esc(featured.backdrop)}')"></div><div class="hero-content"><h1>Что<br><span>посмотреть?</span></h1><p>Откройте новый фильм, сериал или аниме</p><div class="hero-actions"><a href="/catalog" class="button primary">Выбрать тайтл ${icon('arrow')}</a><a href="/start" class="text-link">Просмотренное</a></div></div><a href="/title/${featured.id}" class="hero-feature"><strong>${esc(featured.name)}</strong><span>${featured.year} · ${kindName(featured.kind)} ${icon('arrow')}</span></a></section>
     <div class="container home-body">
     ${state.me && !state.me.onboarding_done ? html`<a class="onboarding-banner" href="/start"><span>${icon('brand')}</span><div><strong>Просмотренное</strong><p>Добавьте знакомые тайтлы</p></div>`+icon('arrow')+'</a>' : ''}
     <section class="catalog-section"><div class="section-heading"><h2>Популярное</h2><a class="text-link" href="/catalog">Каталог ${icon('arrow')}</a></div><div class="category-pills"><a class="active" href="/catalog">Всё</a><a href="/catalog?kind=anime">Аниме</a><a href="/catalog?kind=movie">Фильмы</a><a href="/catalog?kind=series">Сериалы</a></div>${cards(result.items.slice(0, 6))}</section>
@@ -117,7 +117,10 @@ async function homePage() {
 }
 async function catalogPage() {
   const p = params(), kind = p.get('kind') || '', search = p.get('q') || '', sort = p.get('sort') || 'popular'
-  const result = await api(`/api/catalog?${new URLSearchParams({ kind, q:search, sort, page:p.get('page') || '1' })}`)
+  const view = p.get('view') === 'grade' ? 'grade' : 'discover'
+  const genre = p.get('genre') || '', from = p.get('from') || ''
+  const currentPage = p.get('page') || '1'
+  const result = await api(`/api/catalog?${new URLSearchParams({ kind, q:search, sort, page:search || view === 'grade' ? currentPage : '1' })}`)
   let external = [], externalError = ''
   if (search.trim().length >= 2 && result.externalSearch && result.page === 1) {
     try {
@@ -125,10 +128,23 @@ async function catalogPage() {
       external = data.items.filter(item => !result.items.some(local => local.source === 'tmdb' && local.external_id === item.external_id))
     } catch (error) { externalError = error.message }
   }
-  return html`<div class="container page"><header class="page-heading"><h1>${search ? html`Поиск: «${esc(search)}»` : t('Каталог')}</h1><span class="catalog-count">${search ? result.items.length + external.length : result.total} <small>${search ? t('показано') : t('тайтлов')}</small></span></header>
-    <div class="catalog-toolbar"><nav class="category-pills" aria-label="Тип тайтла">${[['',t('Всё')],['anime',t('Аниме')],['movie',t('Фильмы')],['series',t('Сериалы')]].map(([value,label]) => `<a class="${kind === value ? 'active' : ''}" href="${esc(urlFor({kind:value,q:search,sort}))}">${label}</a>`).join('')}</nav><label class="sort-label">Сначала<select id="catalog-sort"><option value="popular" ${sort === 'popular' ? 'selected' : ''}>Популярное</option><option value="rating" ${sort === 'rating' ? 'selected' : ''}>По оценкам</option><option value="new" ${sort === 'new' ? 'selected' : ''}>По году</option></select></label></div>
-    ${result.items.length ? cards(result.items) : external.length ? '' : empty(t('Ничего не найдено'), t('Попробуйте другое название'))}
-    ${pager(result.page, result.pages, (page) => urlFor({kind,q:search,sort,page}))}
+  let discovery = null, discoveryError = ''
+  if (!search && view === 'discover') {
+    try {
+      discovery = await api(`/api/catalog/discover?${new URLSearchParams({ kind, genre, from, sort, page:currentPage })}`)
+    } catch (error) { discoveryError = error.message }
+  }
+  const discovering = !search && view === 'discover' && discovery?.available
+  return html`<div class="container page"><header class="page-heading"><h1>${search ? html`Поиск: «${esc(search)}»` : discovering ? t('Что посмотреть') : t('Каталог')}</h1><span class="catalog-count">${search ? result.items.length + external.length : discovering ? discovery.items.length : result.total} <small>${search ? t('показано') : discovering ? t('на странице') : t('тайтлов')}</small></span></header>
+    ${!search && result.externalSearch ? html`<nav class="catalog-views" aria-label="Раздел каталога"><a class="${view === 'discover' ? 'active' : ''}" href="${esc(urlFor({view:'discover',kind,sort,genre,from}))}">${t('Что посмотреть')}</a><a class="${view === 'grade' ? 'active' : ''}" href="${esc(urlFor({view:'grade',kind,sort}))}">${t('Каталог Grade')}</a></nav>` : ''}
+    <div class="catalog-toolbar"><nav class="category-pills" aria-label="Тип тайтла">${[['',t('Всё')],['anime',t('Аниме')],['movie',t('Фильмы')],['series',t('Сериалы')]].map(([value,label]) => `<a class="${kind === value ? 'active' : ''}" href="${esc(urlFor({kind:value,q:search,sort,...(!search ? {view,genre,from} : {})}))}">${label}</a>`).join('')}</nav><label class="sort-label">${t('Сначала')}<select id="catalog-sort"><option value="popular" ${sort === 'popular' ? 'selected' : ''}>${t('Популярное')}</option><option value="rating" ${sort === 'rating' ? 'selected' : ''}>${discovering ? t('По рейтингу TMDB') : t('По оценкам')}</option><option value="new" ${sort === 'new' ? 'selected' : ''}>${t('По году')}</option></select></label></div>
+    ${discovering ? html`<div class="discovery-intro"><p>${t('Находите новые фильмы и сериалы по жанру и году. Подборка обновляется из TMDB.')}</p><div class="discovery-filters"><label>${t('Жанр')}<select id="catalog-genre"><option value="">${t('Любой жанр')}</option>${[['16',t('Анимация')],['18',t('Драма')],['35',t('Комедия')],['80',t('Криминал')],['99',t('Документальное')],['9648',t('Детектив')],['10751',t('Семейное')]].map(([value,label]) => `<option value="${value}" ${genre === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label><label>${t('Не раньше')}<select id="catalog-from"><option value="">${t('Любой год')}</option>${['2020','2010','2000','1990'].map(value => `<option value="${value}" ${from === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label></div></div>
+      ${discovery.items.length ? `<div class="discovery-grid">${discovery.items.map(item => html`<button type="button" class="discovery-card" data-action="import-title" data-external-id="${esc(item.external_id)}" aria-label="${t('Открыть')} ${esc(item.name)}">${poster(item)}<span class="discovery-card-content"><strong>${esc(item.name)}</strong><small>${item.year || '—'} · ${kindName(item.kind)}</small><span>${esc(item.description || t('Описание пока недоступно'))}</span><em>${t('Подробнее')} ${icon('arrow')}</em></span></button>`).join('')}</div>` : empty(t('Ничего не найдено'), t('Попробуйте другой жанр или год'))}
+      ${pager(discovery.page, discovery.pages, page => urlFor({view,kind,genre,from,sort,page}))}
+      <section class="catalog-section discovery-local"><div class="section-heading"><h2>${t('Каталог Grade')}</h2><a class="text-link" href="${esc(urlFor({view:'grade',kind,sort}))}">${t('Все тайтлы')} ${icon('arrow')}</a></div>${cards(result.items.slice(0,6))}</section>` : html`
+      ${discoveryError ? `<p class="catalog-source-note" role="status">${esc(discoveryError)} ${t('Подборка Grade остаётся доступной.')}</p>` : ''}
+      ${result.items.length ? cards(result.items) : external.length ? '' : empty(t('Ничего не найдено'), t('Попробуйте другое название'))}
+      ${pager(result.page, result.pages, (page) => urlFor({kind,q:search,sort,...(!search ? {view:'grade'} : {}),page}))}`}
     ${external.length ? html`<section class="external-search" aria-label="Внешний каталог"><p>Результаты TMDB</p><div class="external-grid">${external.map(item => html`<button type="button" class="external-item" data-action="import-title" data-external-id="${esc(item.external_id)}" aria-label="Открыть ${esc(item.name)}">${poster(item)}<span><strong>${esc(item.name)}</strong><small>${item.year || '—'} · ${kindName(item.kind)}</small></span>${icon('arrow')}</button>`).join('')}</div></section>` : ''}
     ${externalError ? html`<p class="catalog-source-note" role="status">${esc(externalError)} Поиск по Grade продолжает работать.</p>` : ''}
     </div>`
@@ -209,6 +225,13 @@ function bindPage() {
   }).catch(() => { if (sources.isConnected) sources.innerHTML = ratingSources({ status:'unavailable' }) })
   const sort = document.querySelector('#catalog-sort')
   if (sort) sort.onchange = () => { const p = params(); p.set('sort',sort.value); p.delete('page'); navigate(`/catalog?${p}`) }
+  for (const [selector, key] of [['#catalog-genre','genre'],['#catalog-from','from']]) {
+    const select = document.querySelector(selector)
+    if (select) select.onchange = () => {
+      const p = params(); if (select.value) p.set(key,select.value); else p.delete(key)
+      p.delete('page'); navigate(`/catalog?${p}`)
+    }
+  }
   const filter = document.querySelector('#spoiler-filter')
   if (filter) filter.onchange = () => {
     try { localStorage.setItem('grade:spoiler-filter',filter.value) } catch { /* Optional preference. */ }
@@ -429,7 +452,6 @@ document.addEventListener('click', async (event) => {
         } finally { controls.forEach(control => { if (control.isConnected) control.disabled = false }) }
       }
       if (action === 'import-title') {
-        if (!needUser()) return
         button.disabled = true
         const data = await api('/api/catalog/import',{method:'POST',body:{external_id:button.dataset.externalId}})
         return navigate(`/title/${data.id}`)

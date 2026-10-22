@@ -184,20 +184,55 @@ test('normal public search includes external titles automatically and keeps loca
     if(unavailable) return route.fulfill({status:502,json:{error:'Внешний каталог временно недоступен.'}})
     await route.fulfill({json:{items:[local,{external_id:'movie:987654321',name:'История из внешнего каталога',kind:'movie',year:2025,poster:''}]}})
   })
-  await page.route('**/api/catalog/import',async route=>{imports++;await route.abort()})
+  await page.route('**/api/catalog/import',async route=>{imports++;await route.fulfill({json:{id:local.id}})})
   await page.goto('/catalog?q='+encodeURIComponent(local.name))
   await expect(page.locator('.title-card')).toHaveCount(1)
   await expect(page.locator('.external-item')).toHaveCount(1)
   await expect(page.getByRole('button',{name:'Открыть История из внешнего каталога',exact:true})).toBeVisible()
   await expect(page.getByRole('heading',{name:'Ничего не найдено'})).toHaveCount(0)
   await page.getByRole('button',{name:'Открыть История из внешнего каталога',exact:true}).click()
-  await expect(page.locator('#modal')).toBeVisible()
-  expect(imports).toBe(0)
-  await page.locator('.modal-close').click()
+  await expect(page).toHaveURL(new RegExp(`/title/${local.id}$`))
+  expect(imports).toBe(1)
   unavailable=true
-  await page.reload()
+  await page.goto('/catalog?q='+encodeURIComponent(local.name))
   await expect(page.locator('.title-card')).toHaveCount(1)
   await expect(page.getByRole('status')).toContainText('Поиск по Grade продолжает работать')
+})
+
+test('guests can browse changing discovery results, filter them and open a title',async({page,request})=>{
+  const local=(await (await request.get('/api/catalog')).json()).items[0]
+  const queries=[]
+  let unavailable=false
+  await page.route('**/api/catalog/discover?*',async route=>{
+    const query=new URL(route.request().url()).searchParams
+    queries.push(Object.fromEntries(query))
+    if(unavailable) return route.fulfill({status:502,json:{error:'Внешний каталог временно недоступен.'}})
+    await route.fulfill({json:{available:true,page:Number(query.get('page')),pages:2,items:[{
+      external_id:'movie:987654322',name:'Новый фильм из TMDB',kind:'movie',year:2025,
+      description:'История для выбора вечернего просмотра.',poster:''
+    }]}})
+  })
+  await page.route('**/api/catalog/import',route=>route.fulfill({json:{id:local.id}}))
+  await page.goto('/catalog')
+  await expect(page.getByRole('heading',{name:'Что посмотреть'})).toBeVisible()
+  await expect(page.locator('.discovery-card')).toHaveCount(1)
+  await page.setViewportSize({width:390,height:844})
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true)
+  await expect(page.locator('#catalog-genre')).toBeVisible()
+  await page.locator('#catalog-genre').selectOption('18')
+  await expect(page).toHaveURL(/genre=18/)
+  await page.locator('#catalog-from').selectOption('2020')
+  await expect(page).toHaveURL(/from=2020/)
+  await page.getByRole('link',{name:'Дальше'}).click()
+  await expect(page).toHaveURL(/page=2/)
+  await expect(page.getByRole('navigation',{name:'Страницы'})).toContainText('2 / 2')
+  expect(queries.at(-1)).toMatchObject({genre:'18',from:'2020',page:'2'})
+  await page.getByRole('button',{name:'Открыть Новый фильм из TMDB'}).click()
+  await expect(page).toHaveURL(new RegExp(`/title/${local.id}$`))
+  unavailable=true
+  await page.goto('/catalog')
+  await expect(page.locator('.title-card').first()).toBeVisible()
+  await expect(page.getByRole('status')).toContainText('Подборка Grade остаётся доступной')
 })
 
 test('public pages fit phone, tablet and desktop with readable empty states',async({page})=>{
