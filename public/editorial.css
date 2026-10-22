@@ -406,7 +406,15 @@ dialog::backdrop{background:rgb(32 32 30 / calc(var(--backdrop-opacity,1)*.45))}
   .home-page .hero-description{font-size:15px;color:#b8b8c1;margin-top:30px}
   .home-page .hero-actions{justify-content:center;margin-top:32px}
   .home-page .hero-note{display:none}
+  body.parallax-home{padding-bottom:var(--reveal-footer-height,150px)}
+  .parallax-home #main{position:relative;z-index:1;background:var(--bg)}
+  .parallax-home .home-page>.hero{position:sticky;top:112px;margin-bottom:0}
+  .home-content{position:relative;z-index:2;display:flow-root;width:100vw;margin-left:calc(50% - 50vw);padding:50px 0 1px;background:var(--bg)}
+  .home-content>section{width:calc(100% - 112px);max-width:1376px;margin-left:auto;margin-right:auto}
+  .parallax-home>.footer{position:fixed;bottom:0;left:50%;translate:-50% 0;margin:0;z-index:0;min-height:150px;background:var(--bg)}
 }
+.home-content{display:contents}
+@media(min-width:761px){.home-page>.home-content{display:flow-root}}
 /* Soft black direction, following the user's visual correction. */
 .hero-cinema{display:none}
 ::selection{background:#4a4a53;color:#fff}

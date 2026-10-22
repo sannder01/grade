@@ -8,13 +8,36 @@ let clearHeroMotion = () => {}
 function desktopHeroMotion(main) {
   clearHeroMotion()
   const art = main.querySelector('.hero-cinema')
-  if (!art || reducedMotion() || innerWidth <= 760) return
+  if (!art) return
+  const footer = document.querySelector('.footer')
   const move = gsap.quickTo(art,'y',{duration:.5,ease:'power2.out'})
-  const update = () => move(innerWidth > 760 && !reducedMotion() ? Math.min(scrollY,innerHeight)*.2 : 0)
+  const reveal = gsap.quickTo(footer,'y',{duration:.4,ease:'power2.out'})
+  const update = () => {
+    const enabled = innerWidth > 760 && !reducedMotion()
+    document.body.classList.toggle('parallax-home',enabled)
+    if (!enabled) {
+      document.body.style.removeProperty('--reveal-footer-height')
+      gsap.set([art,footer],{clearProps:'transform'})
+      footer.inert = false; footer.removeAttribute('aria-hidden'); return
+    }
+    const height = footer.offsetHeight
+    document.body.style.setProperty('--reveal-footer-height',`${height}px`)
+    move(Math.min(scrollY,innerHeight)*.2)
+    const remaining = document.documentElement.scrollHeight-innerHeight-scrollY
+    reveal(Math.max(0,Math.min(height,remaining)))
+    footer.inert = remaining >= height
+    if (footer.inert) footer.setAttribute('aria-hidden','true'); else footer.removeAttribute('aria-hidden')
+  }
   window.addEventListener('scroll',update,{passive:true})
   window.addEventListener('resize',update,{passive:true})
+  preference.addEventListener('change',update)
   update()
-  clearHeroMotion = () => { window.removeEventListener('scroll',update); window.removeEventListener('resize',update); gsap.killTweensOf(art) }
+  clearHeroMotion = () => {
+    window.removeEventListener('scroll',update); window.removeEventListener('resize',update); preference.removeEventListener('change',update)
+    gsap.killTweensOf([art,footer]); gsap.set([art,footer],{clearProps:'transform'})
+    document.body.classList.remove('parallax-home'); document.body.style.removeProperty('--reveal-footer-height')
+    footer.inert = false; footer.removeAttribute('aria-hidden')
+  }
 }
 gsap.defaults({ ease: 'power2.out', overwrite: 'auto' })
 
