@@ -132,14 +132,14 @@ test('English headings, collection links and moving navigation keep their labels
   }).toBeLessThan(2)
 })
 
-test('reduced motion disables travel and stagger but keeps all controls and dialogs', async ({ page }) => {
+test('system reduced-motion preference does not disable site motion', async ({ page }) => {
   await page.emulateMedia({reducedMotion:'reduce'})
   await page.goto('/')
   await ready(page)
-  await expect(page.locator('[data-reveal]')).toHaveCount(0)
+  await expect(page.locator('body')).toHaveClass(/parallax-home/)
   await page.locator('.collection-card').first().click()
   await ready(page)
-  await expect(page.locator('.flying-poster')).toHaveCount(0)
+  await settled(page)
   await expect(page.locator('.title-card').first()).toBeVisible()
   await page.locator('.poster-link').first().click()
   await ready(page)
@@ -147,10 +147,7 @@ test('reduced motion disables travel and stagger but keeps all controls and dial
   await expect(page.locator('#modal')).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.locator('#modal')).not.toBeVisible()
-  expect(await page.evaluate(async () => {
-    const {gsap} = await import('/assets/motion-vendor.js')
-    return gsap.globalTimeline.getChildren(true,true,true).filter(tween => tween.isActive() && tween.duration() > .01).length
-  })).toBe(0)
+  expect(await page.evaluate(async () => (await import('/motion.js')).reducedMotion())).toBe(false)
 })
 
 test('touch exposes card actions and vertical dragging preserves native scrolling', async ({ browser, browserName }) => {

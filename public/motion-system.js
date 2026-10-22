@@ -1,8 +1,8 @@
 import { gsap, Flip } from './assets/motion-vendor.js'
 
 gsap.registerPlugin(Flip)
-const preference = matchMedia('(prefers-reduced-motion: reduce)')
-export const reducedMotion = () => preference.matches
+// Preserve the shared API; site motion is always enabled.
+export const reducedMotion = () => false
 const timing = { micro: .2, reveal: .45, page: .65 }
 let clearHeroMotion = () => {}
 function desktopHeroMotion(main) {
@@ -30,10 +30,9 @@ function desktopHeroMotion(main) {
   }
   window.addEventListener('scroll',update,{passive:true})
   window.addEventListener('resize',update,{passive:true})
-  preference.addEventListener('change',update)
   update()
   clearHeroMotion = () => {
-    window.removeEventListener('scroll',update); window.removeEventListener('resize',update); preference.removeEventListener('change',update)
+    window.removeEventListener('scroll',update); window.removeEventListener('resize',update)
     gsap.killTweensOf([art,footer]); gsap.set([art,footer],{clearProps:'transform'})
     document.body.classList.remove('parallax-home'); document.body.style.removeProperty('--reveal-footer-height')
     footer.inert = false; footer.removeAttribute('aria-hidden')
@@ -211,12 +210,5 @@ document.addEventListener('pointerover', event => { if (event.pointerType !== 't
 document.addEventListener('pointerout', event => { if (event.pointerType !== 'touch') cardInteraction(event, false) })
 document.addEventListener('focusin', event => cardInteraction(event, true))
 document.addEventListener('focusout', event => cardInteraction(event, false))
-preference.addEventListener('change', () => {
-  if (!reducedMotion()) return
-  gsap.globalTimeline.getChildren(true, true, true).forEach(animation => { animation.progress(1); animation.kill() })
-  observer?.disconnect(); cleanFloating()
-  document.querySelectorAll('[data-reveal]').forEach(node => node.removeAttribute('data-reveal'))
-  gsap.set('#main', { opacity: 1, clearProps: 'transform' })
-})
 // Preserve native iPhone scrolling and edge-back gestures without pointer capture.
 export function enableGestures() { history.scrollRestoration = 'manual' }

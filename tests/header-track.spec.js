@@ -137,7 +137,7 @@ test('mobile track exposes sections and every expanded state fits 320–760 px',
   }
 })
 
-test('reduced motion supports search, section menu, login and focus restoration', async ({page}) => {
+test('system reduced-motion preference preserves animated header and focus restoration', async ({page}) => {
   await page.emulateMedia({reducedMotion:'reduce'})
   await page.setViewportSize({width:390,height:844})
   await page.goto('/')
@@ -154,8 +154,5 @@ test('reduced motion supports search, section menu, login and focus restoration'
   await expect(page.locator('#auth-form')).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.locator('#modal')).toBeHidden()
-  expect(await page.evaluate(async()=>{
-    const {gsap}=await import('/assets/motion-vendor.js')
-    return gsap.globalTimeline.getChildren(true,true,true).some(tween=>tween.isActive() && tween.duration()>.01)
-  })).toBe(false)
+  await expect(page.locator('.search-trigger')).toHaveCSS('transition-duration','0.4s, 0.4s, 0.4s')
 })

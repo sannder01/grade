@@ -191,12 +191,6 @@ export function initializeHeader() {
     const content = header.querySelector('.pass-content')
     if (content && !reducedMotion()) gsap.fromTo(content,{opacity:0},{opacity:1,duration:.4})
   }).observe(document.querySelector('#account'),{childList:true})
-  matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change',() => {
-    if (!reducedMotion()) return
-    if (searchOpen) { searchTimeline.progress(1).pause(); gsap.set(searchTray,{opacity:1,y:0}) }
-    else { searchTimeline.progress(0).pause(); form.hidden = true; searchTray.hidden = true }
-    gsap.set(menu,{opacity:menuOpen ? 1 : 0,y:0}); menu.hidden = !menuOpen
-  })
   routeLabel()
   const desktopNav = header.querySelector('.desktop-nav')
   const previewMark = event => {
