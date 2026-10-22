@@ -198,4 +198,13 @@ export function initializeHeader() {
     gsap.set(menu,{opacity:menuOpen ? 1 : 0,y:0}); menu.hidden = !menuOpen
   })
   routeLabel()
+  const desktopNav = header.querySelector('.desktop-nav')
+  const previewMark = event => {
+    const link = event.target.closest('a'), frame = desktopNav.querySelector('.nav-indicator')
+    if (link && frame) gsap.to(frame,{x:link.offsetLeft,y:link.offsetTop,width:link.offsetWidth,height:link.offsetHeight,opacity:1,duration:duration(),overwrite:true})
+  }
+  desktopNav.addEventListener('pointerover',previewMark)
+  desktopNav.addEventListener('focusin',previewMark)
+  desktopNav.addEventListener('pointerleave',syncNavigation)
+  desktopNav.addEventListener('focusout',event => { if (!desktopNav.contains(event.relatedTarget)) syncNavigation() })
 }

@@ -394,7 +394,21 @@ dialog::backdrop{background:rgb(32 32 30 / calc(var(--backdrop-opacity,1)*.45))}
 }
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}.flying-poster{display:none}.card-actions{opacity:1!important;transform:none!important}[data-reveal]{visibility:visible!important}}
 
+/* Desktop opening frame: a quiet cinematic background and native scroll parallax. */
+@media(min-width:761px){
+  .home-page>.hero{position:relative;isolation:isolate;display:flex;align-items:center;justify-content:center;min-height:min(800px,calc(100svh - 112px));width:100vw;margin:0 0 55px calc(50% - 50vw);padding:70px 56px;border:0;border-radius:0;overflow:hidden;background:#09090b}
+  .home-page .hero-cinema{display:block;position:absolute;z-index:-2;inset:-90px 0;background-size:cover;background-position:center 40%;filter:saturate(.45);will-change:transform}
+  .home-page>.hero::after{content:'';position:absolute;inset:0;z-index:-1;background:linear-gradient(180deg,#09090b85,#09090b77 45%,#09090bf5)}
+  .home-page .hero-content{width:100%;max-width:1050px;text-align:center;position:relative}
+  .home-page .hero-kicker{justify-content:center;margin-bottom:32px;font-size:11px;letter-spacing:.13em}
+  .home-page .hero h1{font-size:clamp(56px,6vw,90px);line-height:1.12;font-weight:500;letter-spacing:-.055em;text-wrap:balance}
+  .home-page .hero h1>span{color:#c1c1c8}
+  .home-page .hero-description{font-size:15px;color:#b8b8c1;margin-top:30px}
+  .home-page .hero-actions{justify-content:center;margin-top:32px}
+  .home-page .hero-note{display:none}
+}
 /* Soft black direction, following the user's visual correction. */
+.hero-cinema{display:none}
 ::selection{background:#4a4a53;color:#fff}
 h1,h2,h3{font-weight:500;letter-spacing:-.045em}
 .header{background:#09090be8;-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);border-bottom-color:#ffffff0b}

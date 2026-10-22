@@ -4,6 +4,18 @@ gsap.registerPlugin(Flip)
 const preference = matchMedia('(prefers-reduced-motion: reduce)')
 export const reducedMotion = () => preference.matches
 const timing = { micro: .2, reveal: .45, page: .65 }
+let clearHeroMotion = () => {}
+function desktopHeroMotion(main) {
+  clearHeroMotion()
+  const art = main.querySelector('.hero-cinema')
+  if (!art || reducedMotion() || innerWidth <= 760) return
+  const move = gsap.quickTo(art,'y',{duration:.5,ease:'power2.out'})
+  const update = () => move(innerWidth > 760 && !reducedMotion() ? Math.min(scrollY,innerHeight)*.2 : 0)
+  window.addEventListener('scroll',update,{passive:true})
+  window.addEventListener('resize',update,{passive:true})
+  update()
+  clearHeroMotion = () => { window.removeEventListener('scroll',update); window.removeEventListener('resize',update); gsap.killTweensOf(art) }
+}
 gsap.defaults({ ease: 'power2.out', overwrite: 'auto' })
 
 // Compatibility for existing toast calls; everything uses the GSAP clock.
@@ -50,6 +62,7 @@ export function prepareNavigation(link, route) {
 }
 
 export async function leavePage(main) {
+  clearHeroMotion()
   observer?.disconnect(); pageTween?.kill(); gsap.killTweensOf(main)
   sameComposition = mounted && requestedRoute === lastRoute
   const cards = [...main.querySelectorAll('.title-card')]
@@ -73,6 +86,7 @@ export async function leavePage(main) {
 }
 
 export function mountMotion(main) {
+  desktopHeroMotion(main)
   observer?.disconnect(); pageTween?.kill(); mounted = true
   lastRoute = location.pathname; requestedRoute = location.pathname
   gsap.set(main, { opacity: 1, clearProps: 'transform' })
