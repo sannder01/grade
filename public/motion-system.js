@@ -36,7 +36,7 @@ let observer, pageContext, pageTween, layoutTween, cardState, sharedState
 let mounted = false, sameComposition = false, requestedRoute = '', lastRoute = ''
 let pendingLink = null, shared = [], layer = null
 let filmTransition = false
-let disposeHero = null, heroSeen = false
+let disposeHero = null, disposeHeroFlow = null, heroSeen = false
 const collectionMemories = new Map()
 const visible = node => {
   const box = node?.getBoundingClientRect()
@@ -56,7 +56,16 @@ function neutralizePosterImages(main) {
   gsap.killTweensOf(images)
   gsap.set(images,{clearProps:'transform,translate,scale'})
 }
+function mountOptionalHeroFlow(hero) {
+  let active = true, cleanup = null
+  // A decorative module must never block the archive if its request fails.
+  import('./hero-flow.js').then(({mountHeroFlow}) => {
+    if (active && hero.isConnected) cleanup = mountHeroFlow(hero)
+  }).catch(() => { if (active && hero.isConnected) hero.dataset.heroFlow = 'fallback' })
+  return () => { active = false; cleanup?.() }
+}
 function stopPageEffects() {
+  disposeHeroFlow?.(); disposeHeroFlow = null
   disposeHero?.(); disposeHero = null
   observer?.disconnect(); observer = null
   pageTween?.kill(); pageTween = null
@@ -176,12 +185,14 @@ function mountShared(main) {
 
 export function mountMotion(main) {
   observer?.disconnect(); pageTween?.kill(); mounted = true
+  disposeHeroFlow?.(); disposeHeroFlow = null
   disposeHero?.(); disposeHero = null
   const hero = main.querySelector('.hero-editorial')
   if (hero) {
     const animate = !heroSeen
     heroSeen = true
     disposeHero = mountHeroMask(hero,{animate})
+    disposeHeroFlow = mountOptionalHeroFlow(hero)
   }
   const calmFilm = filmTransition || titleRoute(location.pathname)
   filmTransition = false

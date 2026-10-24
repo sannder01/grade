@@ -40,6 +40,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run build:glass
       - run: npm run build:motion
+      - run: npm run build:flow
       - run: git diff --exit-code -- public/assets/
       - run: npm run check
       - run: npm test

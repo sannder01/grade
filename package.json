@@ -14,13 +14,15 @@
     "test:e2e": "playwright test",
     "migrate": "node --env-file-if-exists=.env scripts/migrate.mjs",
     "build:glass": "node scripts/build-glass.mjs",
-    "build:motion": "node scripts/build-motion.mjs"
+    "build:motion": "node scripts/build-motion.mjs",
+    "build:flow": "node scripts/build-flow.mjs"
   },
   "dependencies": {
     "better-auth": "1.7.8",
     "express": "5.1.0",
     "gsap": "3.15.0",
     "liquid-glass-react": "1.1.1",
+    "ogl": "1.0.11",
     "pg": "8.16.3",
     "react": "19.3.1",
     "react-dom": "19.3.1"

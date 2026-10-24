@@ -1,0 +1,15 @@
+Grade's hero-flow.js adapts the mouse-to-flowmap/image-displacement technique from:
+Mouse Flowmap Deformation with OGL, Robin Delaporte / Codrops, 2019
+https://github.com/robin-dela/flowmap-effect
+https://tympanus.net/codrops/2019/09/25/mouse-flowmap-deformation-with-ogl/
+
+Original README License (custom terms; not MIT):
+
+This resource can be used freely if integrated or build upon in personal or commercial projects such as websites, web apps and web templates intended for sale. It is not allowed to take the resource "as-is" and sell it, redistribute, re-publish it, or sell "pluginized" versions of it. Free plugins built using this resource should have a visible mention and link to the original work. Always consider the licenses of all included libraries, scripts and images used.
+
+© Codrops 2019
+
+This is an integrated adaptation for Grade, not redistribution of the original
+demo or a standalone plugin. No original demo images, global CSS or 2019 bundle
+are included. Grade uses its existing film poster and the locally bundled
+OGL 1.0.11 under the separate Unlicense in /assets/ogl.LICENSE.txt.
