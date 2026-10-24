@@ -520,8 +520,10 @@ dialog::backdrop{background:rgb(0 0 0 / calc(var(--backdrop-opacity,1)*.65));-we
 .hero-editorial .hero-content{max-width:760px;text-align:left}
 .hero-editorial .hero-kicker{display:flex;flex-direction:column;gap:5px;font:14px/1.6 'Manrope',sans-serif;letter-spacing:0;color:var(--text);margin-bottom:30px}
 .hero-editorial .hero-kicker span{font-size:14px;color:var(--muted)}
-.hero-editorial h1{font-size:clamp(72px,7.35vw,112px);font-weight:500;line-height:.99;letter-spacing:-.065em}
-.hero-editorial h1>span{color:#a2a1a7}
+.hero-editorial h1{font-size:clamp(72px,7.35vw,112px);font-weight:500;line-height:1.04;letter-spacing:-.065em;max-width:620px}
+.hero-editorial .hero-emphasis{color:#a2a1a7}
+.hero-line-mask{overflow:clip;padding-bottom:.13em;margin-bottom:-.13em}
+.hero-line{transform-origin:0 100%}
 .hero-editorial .hero-description{font-size:15px;line-height:1.8;margin-top:28px;color:var(--muted)}
 .hero-editorial .hero-actions{justify-content:flex-start;gap:28px;margin-top:26px}
 .hero-posters{display:grid;grid-template-columns:1fr .83fr;gap:22px;align-items:start;max-width:410px;width:100%;justify-self:end;padding-top:24px}
@@ -613,17 +615,15 @@ dialog::backdrop{backdrop-filter:none;-webkit-backdrop-filter:none}
   .home-page>.hero-editorial{display:flex;flex-direction:column;align-items:stretch;min-height:0;gap:42px;margin:0;padding:44px 0 75px}
   .hero-editorial .hero-kicker{font-size:14px;gap:4px;margin-bottom:25px}
   .hero-editorial .hero-kicker span{display:block;font-size:14px}
-  .hero-editorial h1{font-size:clamp(36px,10.5vw,48px);line-height:1.05;letter-spacing:-.055em}
-  .hero-editorial h1 br:first-child{display:none}
-  .hero-editorial h1 br:first-child::after{content:' '}
+  .hero-editorial h1{font-size:clamp(36px,10.5vw,48px);line-height:1.08;letter-spacing:-.055em;max-width:none}
   .hero-editorial .hero-description{font-size:14px;line-height:1.75;margin-top:22px}
   .hero-editorial .hero-actions{gap:20px;margin-top:24px;flex-wrap:wrap}
   .hero-editorial .hero-actions>.button{font-size:14px;min-height:46px;padding:11px 16px}
   .hero-editorial .hero-actions>.text-link{font-size:14px}
   .hero-posters{max-width:480px;align-self:center;gap:16px;padding:0;grid-template-columns:1fr .85fr}
   .hero-poster-2{margin-top:34px}
-  .hero-poster-3{display:none}
-  .hero-poster-4{display:none}
+  .hero-poster-3{display:block;width:76%;margin-top:0}
+  .hero-poster-4{display:block;width:90%;margin-top:15px}
   .hero-poster-caption{font-size:12px;margin-top:9px;gap:9px}
   .hero-poster>.poster-placeholder{border-radius:12px}
   .section-heading{align-items:start;flex-wrap:wrap;gap:15px;margin-bottom:24px}

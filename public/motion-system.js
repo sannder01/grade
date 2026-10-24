@@ -1,4 +1,5 @@
 import { gsap, Flip } from './assets/motion-vendor.js'
+import { mountHeroMask } from './hero-motion.js'
 
 /*
  * Collection reparenting adapts Codrops ContentLayoutTransition (slideshow.js).
@@ -35,6 +36,7 @@ let observer, pageContext, pageTween, layoutTween, cardState, sharedState
 let mounted = false, sameComposition = false, requestedRoute = '', lastRoute = ''
 let pendingLink = null, shared = [], layer = null
 let filmTransition = false
+let disposeHero = null, heroSeen = false
 const collectionMemories = new Map()
 const visible = node => {
   const box = node?.getBoundingClientRect()
@@ -55,6 +57,7 @@ function neutralizePosterImages(main) {
   gsap.set(images,{clearProps:'transform,translate,scale'})
 }
 function stopPageEffects() {
+  disposeHero?.(); disposeHero = null
   observer?.disconnect(); observer = null
   pageTween?.kill(); pageTween = null
   layoutTween?.kill(); layoutTween = null
@@ -173,6 +176,13 @@ function mountShared(main) {
 
 export function mountMotion(main) {
   observer?.disconnect(); pageTween?.kill(); mounted = true
+  disposeHero?.(); disposeHero = null
+  const hero = main.querySelector('.hero-editorial')
+  if (hero) {
+    const animate = !heroSeen
+    heroSeen = true
+    disposeHero = mountHeroMask(hero,{animate})
+  }
   const calmFilm = filmTransition || titleRoute(location.pathname)
   filmTransition = false
   lastRoute = location.pathname; requestedRoute = location.pathname; pendingLink = null
@@ -195,12 +205,12 @@ export function mountMotion(main) {
   } else {
     pageContext = gsap.context(() => {
       if (calmFilm) {
-        gsap.fromTo(main,{opacity:.55},{opacity:1,duration:timing.film,ease:'power2.out',clearProps:'opacity'})
-        const composition = main.querySelectorAll('.title-sidebar,.title-info,.page-heading,.hero-content,.hero-posters,.profile-heading')
+        if (!hero) gsap.fromTo(main,{opacity:.55},{opacity:1,duration:timing.film,ease:'power2.out',clearProps:'opacity'})
+        const composition = main.querySelectorAll('.title-sidebar,.title-info,.page-heading,.profile-heading')
         if (composition.length) gsap.from(composition,{y:8,duration:timing.film,ease:'power2.out',stagger:.025,clearProps:'transform'})
       } else {
-        if (!transferred.length) gsap.fromTo(main,{opacity:.35},{opacity:1,duration:.5})
-        const headings = [...main.querySelectorAll('.hero-kicker,.hero h1,.hero-description,.hero-actions,.hero-note,.hero-posters .hero-poster,.page-heading,.title-kicker,.title-info>h1,.original-name,.profile-heading')].filter(node => !containsShared(node))
+        if (!transferred.length && !hero) gsap.fromTo(main,{opacity:.35},{opacity:1,duration:.5})
+        const headings = [...main.querySelectorAll('.page-heading,.title-kicker,.title-info>h1,.original-name,.profile-heading')].filter(node => !containsShared(node))
         if (headings.length) gsap.from(headings,{y:18,opacity:0,duration:timing.reveal,stagger:.04,clearProps:'transform,opacity'})
       }
     },main)
