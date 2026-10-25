@@ -292,7 +292,8 @@ export function closeDialog(dialog, after = () => {}) {
     dialog.close(); state?.timeline.kill(); dialogs.delete(dialog); activeDialogs.delete(dialog)
     gsap.set(dialog,{clearProps:'transform,opacity,--backdrop-opacity'}); after()
   }
-  if (reducedMotion() || !state) { finish(); return }
+  // Reversing at time zero cannot cross a boundary or fire onReverseComplete.
+  if (reducedMotion() || !state || state.timeline.totalTime() === 0) { finish(); return }
   state.closing = true; state.finish = finish
   state.timeline.eventCallback('onReverseComplete',finish).reverse()
 }

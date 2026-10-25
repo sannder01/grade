@@ -207,3 +207,46 @@ test('reduced motion settles scenes immediately while preserving focus and navig
   await expect(page.locator('.login-button')).toBeFocused()
   await expect(page.locator('main')).toHaveJSProperty('inert',false)
 })
+
+test('the sign-in sidebar cancels before its first animation frame and can reopen repeatedly', async ({page}) => {
+  const errors=[],writes=[],unexpected=[]
+  page.on('pageerror',error=>errors.push(error.message))
+  await page.route('**/api/**',route=>{
+    const request=route.request(),path=new URL(request.url()).pathname
+    if(request.method()!=='GET') {
+      writes.push(request.method()+' '+path)
+      return route.fulfill({status:405,json:{error:'This dialog regression never writes application data'}})
+    }
+    if(path==='/api/me') return route.fulfill({json:{user:null}})
+    if(path==='/api/catalog') return route.fulfill({json:{items:Array.from({length:4},(_,index)=>({id:String(index+1),name:`Кадр ${index+1}`,kind:'movie',year:2026,votes:0})),total:4,page:1,pages:1,externalSearch:false}})
+    if(path==='/api/catalog/discover') return route.fulfill({json:{available:false,items:[],page:1,pages:0}})
+    unexpected.push(path)
+    return route.fulfill({status:404,json:{error:'Unknown dialog fixture route'}})
+  })
+  await page.addInitScript(()=>localStorage.setItem('grade:language','ru'))
+  await page.goto('/')
+  await ready(page)
+  const login=page.locator('.login-button'),modal=page.locator('#modal')
+  await expect(login).toBeEnabled()
+  await login.focus()
+  for(let cycle=0;cycle<4;cycle++) {
+    // Keep both UI events in one synchronous JS turn: the opening timeline
+    // must still be at its start when the cancel handler reverses it.
+    const result=await login.evaluate(button=>{
+      button.click()
+      const dialog=document.querySelector('#modal'),opened=dialog.open
+      const cancel=new Event('cancel',{cancelable:true})
+      dialog.dispatchEvent(cancel)
+      return {opened,cancelPrevented:cancel.defaultPrevented}
+    })
+    expect(result).toEqual({opened:true,cancelPrevented:true})
+    await expect(modal,`cancel cycle ${cycle+1} must remove the dialog from the top layer`).toHaveJSProperty('open',false,{timeout:2000})
+    await expect(modal).toBeHidden()
+    await expect(login).toBeFocused()
+    await expect(page.locator('main')).toHaveJSProperty('inert',false)
+    expect(await modal.evaluate(node=>node.style.transform)).toBe('')
+  }
+  expect(errors).toEqual([])
+  expect(writes).toEqual([])
+  expect(unexpected).toEqual([])
+})
