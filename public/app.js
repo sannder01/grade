@@ -7,6 +7,7 @@ import { loadCollections, collectionCards, collectionBySlug } from './collection
 import { initializeHeader, closeHeaderPanels, openHeaderSearch, viewerPass } from './header-track.js'
 
 const main = document.querySelector('#main')
+const filterControls = '#collection-sort,#catalog-sort,#catalog-genre,#catalog-from,.catalog-toolbar .category-pills a,.catalog-views a'
 const state = { me: null, generation: 0, title: null, discussion: null, onboarding: null }
 const params = () => new URLSearchParams(location.search)
 const urlFor = (values) => `/catalog?${new URLSearchParams(values)}`
@@ -22,11 +23,12 @@ function navigate(url, replace = false, link = null) {
   rememberView()
   closeHeaderPanels()
   const samePage = new URL(url, location.href).pathname === location.pathname
+  const keepFilterFocus = samePage && (location.pathname === '/catalog' || /^\/collections\/[a-z-]+$/.test(location.pathname))
   prepareNavigation(link, url)
   const previous = location.pathname + location.search
   entryKey = crypto.randomUUID()
   history[replace ? 'replaceState' : 'pushState']({ gradeKey: entryKey, gradeFrom: previous }, '', url)
-  render({ resetScroll: !samePage })
+  render({ resetScroll: !samePage, keepFilterFocus })
 }
 async function refreshMe() {
   const data = await api('/api/me')
@@ -64,7 +66,7 @@ function authModal(mode = 'login') {
   }
 }
 
-async function render({ resetScroll = false, restore = null } = {}) {
+async function render({ resetScroll = false, restore = null, keepFilterFocus = false } = {}) {
   closeTrailer()
   const generation = ++state.generation
   const path = location.pathname
@@ -95,9 +97,15 @@ async function render({ resetScroll = false, restore = null } = {}) {
     if (generation !== state.generation) return
     await leavePage(main)
     if (generation !== state.generation) return
+    // Capture the current owner at commit: the user may Tab to another filter
+    // or open search while awaiting the API. Never pull focus from that scene.
+    const focused = keepFilterFocus && !main.inert ? document.activeElement : null
+    const filterView = main.contains(focused) && focused.matches(filterControls)
+      ? {id:focused.id,key:focused.dataset.filterKey,scroll:scrollY} : null
     main.innerHTML = content
     if (restore) window.scrollTo({ top: restore.scroll, behavior:'instant' })
     else if (resetScroll) window.scrollTo({ top:0,behavior:'instant' })
+    else if (filterView) window.scrollTo({ top:filterView.scroll,behavior:'instant' })
     bindPage()
     if (restore?.comment != null && document.querySelector('#comment-text')) document.querySelector('#comment-text').value = restore.comment
     const restoreFocus = () => {
@@ -107,6 +115,11 @@ async function render({ resetScroll = false, restore = null } = {}) {
     }
     if (main.inert && restore) document.addEventListener('grade:scene-closed',restoreFocus,{once:true})
     else restoreFocus()
+    if (!restore && filterView) {
+      const target = filterView.id ? document.getElementById(filterView.id)
+        : [...main.querySelectorAll(filterControls)].find(node => node.dataset.filterKey === filterView.key)
+      if (main.contains(target) && target.matches(filterControls) && !target.disabled && target.getClientRects().length) target.focus({preventScroll:true})
+    }
     mountMotion(main)
     document.title = path.startsWith('/title/') && state.title ? `${state.title.name} — Grade` : t('Grade — оценки аниме, фильмов и сериалов')
     const search = params().get('q') || ''
@@ -145,7 +158,7 @@ async function collectionsPage(slug) {
   let items = collection.items.filter(item => !kind || item.kind === kind)
   if (sort === 'new') items = [...items].sort((a,b) => b.year-a.year)
   else if (sort === 'rating') items = [...items].sort((a,b) => (b.average ?? -1)-(a.average ?? -1))
-  return html`<div class="container page collection-page" data-collection-slug="${esc(slug)}"><a href="/collections" class="back-link">${icon('arrow-left')} Все подборки</a><header class="page-heading"><div><p class="eyebrow">${esc(collection.index)} / ПОДБОРКА GRADE</p><h1><span data-collection-title="${esc(slug)}">${esc(t(collection.name))}</span></h1><p>${esc(t(collection.description))}</p></div><span class="catalog-count">${items.length}<small> ${t('тайтлов')}</small></span></header><div class="catalog-toolbar"><nav class="category-pills" aria-label="${t('Тип тайтла')}">${[['',t('Всё')],['movie',t('Фильмы')],['anime',t('Аниме')],['series',t('Сериалы')]].map(([value,label]) => `<a class="${kind === value ? 'active' : ''}" href="/collections/${slug}?${new URLSearchParams({kind:value,sort})}">${label}</a>`).join('')}</nav><label class="sort-label">${t('Сначала')}<select id="collection-sort"><option value="popular" ${sort === 'popular' ? 'selected' : ''}>${t('Популярное')}</option><option value="new" ${sort === 'new' ? 'selected' : ''}>${t('По году')}</option><option value="rating" ${sort === 'rating' ? 'selected' : ''}>${t('По оценкам')}</option></select></label></div>${items.length ? cards(items) : empty(t('Ничего не найдено'),t('Попробуйте другой жанр или год'))}</div>`
+  return html`<div class="container page collection-page" data-collection-slug="${esc(slug)}"><a href="/collections" class="back-link">${icon('arrow-left')} Все подборки</a><header class="page-heading"><div><p class="eyebrow">${esc(collection.index)} / ПОДБОРКА GRADE</p><h1><span data-collection-title="${esc(slug)}">${esc(t(collection.name))}</span></h1><p>${esc(t(collection.description))}</p></div><span class="catalog-count">${items.length}<small> ${t('тайтлов')}</small></span></header><div class="catalog-toolbar"><nav class="category-pills" aria-label="${t('Тип тайтла')}">${[['',t('Всё')],['movie',t('Фильмы')],['anime',t('Аниме')],['series',t('Сериалы')]].map(([value,label]) => `<a class="${kind === value ? 'active' : ''}" data-filter-key="kind:${value}" ${kind === value ? 'aria-current="true"' : ''} href="/collections/${slug}?${new URLSearchParams({kind:value,sort})}">${label}</a>`).join('')}</nav><label class="sort-label">${t('Сначала')}<select id="collection-sort"><option value="popular" ${sort === 'popular' ? 'selected' : ''}>${t('Популярное')}</option><option value="new" ${sort === 'new' ? 'selected' : ''}>${t('По году')}</option><option value="rating" ${sort === 'rating' ? 'selected' : ''}>${t('По оценкам')}</option></select></label></div>${items.length ? cards(items) : empty(t('Ничего не найдено'),t('Попробуйте другой жанр или год'))}</div>`
 }
 async function catalogPage() {
   const p = params(), kind = p.get('kind') || '', search = p.get('q') || '', sort = p.get('sort') || 'popular'
@@ -168,8 +181,8 @@ async function catalogPage() {
   }
   const discovering = !search && view === 'discover' && discovery?.available
   return html`<div class="container page"><header class="page-heading"><h1>${search ? html`Поиск: «${esc(search)}»` : discovering ? t('Что посмотреть') : t('Каталог')}</h1><span class="catalog-count">${search ? result.items.length + external.length : discovering ? discovery.items.length : result.total} <small>${search ? t('показано') : discovering ? t('на странице') : t('тайтлов')}</small></span></header>
-    ${!search && result.externalSearch ? html`<nav class="catalog-views" aria-label="Раздел каталога"><a class="${view === 'discover' ? 'active' : ''}" href="${esc(urlFor({view:'discover',kind,sort,genre,from}))}">${t('Что посмотреть')}</a><a class="${view === 'grade' ? 'active' : ''}" href="${esc(urlFor({view:'grade',kind,sort}))}">${t('Каталог Grade')}</a></nav>` : ''}
-    <div class="catalog-toolbar"><nav class="category-pills" aria-label="Тип тайтла">${[['',t('Всё')],['anime',t('Аниме')],['movie',t('Фильмы')],['series',t('Сериалы')]].map(([value,label]) => `<a class="${kind === value ? 'active' : ''}" href="${esc(urlFor({kind:value,q:search,sort,...(!search ? {view,genre,from} : {})}))}">${label}</a>`).join('')}</nav><label class="sort-label">${t('Сначала')}<select id="catalog-sort"><option value="popular" ${sort === 'popular' ? 'selected' : ''}>${t('Популярное')}</option><option value="rating" ${sort === 'rating' ? 'selected' : ''}>${discovering ? t('По рейтингу TMDB') : t('По оценкам')}</option><option value="new" ${sort === 'new' ? 'selected' : ''}>${t('По году')}</option></select></label></div>
+    ${!search && result.externalSearch ? html`<nav class="catalog-views" aria-label="Раздел каталога"><a class="${view === 'discover' ? 'active' : ''}" data-filter-key="view:discover" ${view === 'discover' ? 'aria-current="true"' : ''} href="${esc(urlFor({view:'discover',kind,sort,genre,from}))}">${t('Что посмотреть')}</a><a class="${view === 'grade' ? 'active' : ''}" data-filter-key="view:grade" ${view === 'grade' ? 'aria-current="true"' : ''} href="${esc(urlFor({view:'grade',kind,sort}))}">${t('Каталог Grade')}</a></nav>` : ''}
+    <div class="catalog-toolbar"><nav class="category-pills" aria-label="Тип тайтла">${[['',t('Всё')],['anime',t('Аниме')],['movie',t('Фильмы')],['series',t('Сериалы')]].map(([value,label]) => `<a class="${kind === value ? 'active' : ''}" data-filter-key="kind:${value}" ${kind === value ? 'aria-current="true"' : ''} href="${esc(urlFor({kind:value,q:search,sort,...(!search ? {view,genre,from} : {})}))}">${label}</a>`).join('')}</nav><label class="sort-label">${t('Сначала')}<select id="catalog-sort"><option value="popular" ${sort === 'popular' ? 'selected' : ''}>${t('Популярное')}</option><option value="rating" ${sort === 'rating' ? 'selected' : ''}>${discovering ? t('По рейтингу TMDB') : t('По оценкам')}</option><option value="new" ${sort === 'new' ? 'selected' : ''}>${t('По году')}</option></select></label></div>
     ${discovering ? html`<div class="discovery-intro"><p>${t('Находите новые фильмы и сериалы по жанру и году. Подборка обновляется из TMDB.')}</p><div class="discovery-filters"><label>${t('Жанр')}<select id="catalog-genre"><option value="">${t('Любой жанр')}</option>${[['16',t('Анимация')],['18',t('Драма')],['35',t('Комедия')],['80',t('Криминал')],['99',t('Документальное')],['9648',t('Детектив')],['10751',t('Семейное')]].map(([value,label]) => `<option value="${value}" ${genre === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label><label>${t('Не раньше')}<select id="catalog-from"><option value="">${t('Любой год')}</option>${['2020','2010','2000','1990'].map(value => `<option value="${value}" ${from === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label></div></div>
       ${discovery.items.length ? `<div class="discovery-grid">${discovery.items.map(item => html`<button type="button" class="discovery-card" data-action="import-title" data-external-id="${esc(item.external_id)}" aria-label="${t('Открыть')} ${esc(item.name)}">${poster(item)}<span class="discovery-card-content"><strong>${esc(item.name)}</strong><small>${item.year || '—'} · ${kindName(item.kind)}</small><span>${esc(item.description || t('Описание пока недоступно'))}</span><em>${t('Подробнее')} ${icon('arrow')}</em></span></button>`).join('')}</div>` : empty(t('Ничего не найдено'), t('Попробуйте другой жанр или год'))}
       ${pager(discovery.page, discovery.pages, page => urlFor({view,kind,genre,from,sort,page}))}
