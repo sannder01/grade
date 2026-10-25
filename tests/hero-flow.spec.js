@@ -6,6 +6,7 @@ test.skip(({browserName})=>browserName!=='chromium','The pixel regression uses C
 const root=page=>page.locator('.hero-editorial')
 const media=page=>page.locator('.hero-poster [data-hero-media]').first()
 const canvas=page=>page.locator('.hero-flow-canvas')
+const corsTextureUrl='https://image.tmdb.org/grade-flow-test/poster.svg'
 const texture='<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><defs><pattern id="p" width="24" height="24" patternUnits="userSpaceOnUse"><rect width="24" height="24" fill="#234d75"/><rect width="12" height="12" fill="#e39549"/><rect x="12" y="12" width="12" height="12" fill="#c0c4ad"/></pattern></defs><rect width="640" height="360" fill="url(#p)"/><path d="M0 0H140V360H0Z" fill="#7b3146"/><path d="M510 0H640V360H510Z" fill="#275d3c"/><path d="m0 310 640-180v22L0 332Z" fill="#ece4d4"/></svg>'
 
 async function fixtures(page,{disabledWebGL=false,failedImage=false,corsImage=false}={}) {
@@ -16,7 +17,7 @@ async function fixtures(page,{disabledWebGL=false,failedImage=false,corsImage=fa
       writes.push(request.method()+' '+path)
       return route.fulfill({status:405,json:{error:'Flow tests never write application data'}})
     }
-    const items=Array.from({length:4},(_,index)=>({id:String(index+1),name:`Кадр ${index+1}`,kind:'movie',year:2026-index,poster:index===0 && corsImage ? 'https://flow-cors.invalid/poster-1.svg' : `/flow-fixtures/poster-${index+1}.svg`,votes:0,average:null}))
+    const items=Array.from({length:4},(_,index)=>({id:String(index+1),name:`Кадр ${index+1}`,kind:'movie',year:2026-index,poster:index===0 && corsImage ? corsTextureUrl : `/flow-fixtures/poster-${index+1}.svg`,votes:0,average:null}))
     if(path==='/api/me') return route.fulfill({json:{user:null}})
     if(path==='/api/catalog') return route.fulfill({json:{items,total:4,page:1,pages:1,externalSearch:false}})
     if(path==='/api/catalog/discover') return route.fulfill({json:{available:false,items:[],page:1,pages:0}})
@@ -35,10 +36,15 @@ async function fixtures(page,{disabledWebGL=false,failedImage=false,corsImage=fa
   // Playwright adds a matching ACAO header to fulfilled cross-origin requests
   // unless one is supplied. An explicit different origin makes Chromium reject
   // the anonymous texture load while its ordinary no-cors <img> still displays.
-  if(corsImage) await page.route('https://flow-cors.invalid/**',route=>route.fulfill({contentType:'image/svg+xml',headers:{'access-control-allow-origin':'https://different-origin.invalid','cache-control':'no-store'},body:texture}))
+  // Use the production CSP's allowed image origin and intercept only this path;
+  // both the base image and ?grade-flow texture request stay entirely local.
+  if(corsImage) await page.route(/^https:\/\/image\.tmdb\.org\/grade-flow-test\/poster\.svg(?:\?[^#]*)?$/,route=>route.fulfill({contentType:'image/svg+xml',headers:{'access-control-allow-origin':'https://different-origin.invalid','cache-control':'no-store'},body:texture}))
   await page.addInitScript(({disabledWebGL})=>{
     try { localStorage.setItem('grade:language','ru') } catch {}
-    const probe=window.__flowProbe={allocations:[],frames:[],errors:[],sequence:0}
+    const probe=window.__flowProbe={allocations:[],frames:[],errors:[],cspViolations:[],sequence:0}
+    document.addEventListener('securitypolicyviolation',event=>{
+      if(event.blockedURI.startsWith('https://image.tmdb.org')) probe.cspViolations.push({directive:event.effectiveDirective,blockedURI:event.blockedURI})
+    })
     const contexts=new WeakMap(),expected=new WeakMap()
     const native=HTMLCanvasElement.prototype.getContext
     HTMLCanvasElement.prototype.getContext=function(type,...args) {
@@ -283,10 +289,11 @@ for(const failure of ['disabledWebGL','failedImage','corsImage']) {
     const corsFailures=[]
     page.on('requestfailed',request=>{
       const url=new URL(request.url())
-      if(url.hostname==='flow-cors.invalid' && url.searchParams.has('grade-flow')) corsFailures.push(request.failure()?.errorText)
+      if(url.origin==='https://image.tmdb.org' && url.pathname==='/grade-flow-test/poster.svg' && url.searchParams.has('grade-flow')) corsFailures.push(request.failure()?.errorText)
     })
     const audit=await fixtures(page,{[failure]:true})
-    await page.goto('/')
+    const response=await page.goto('/')
+    if(failure==='corsImage') expect(response.headers()['content-security-policy']).toMatch(/img-src[^;]*https:\/\/image\.tmdb\.org/)
     await expect(root(page)).toHaveAttribute('data-hero-motion','complete')
     await expect(root(page)).toHaveAttribute('data-hero-flow','fallback')
     await expect(canvas(page)).toHaveCount(0)
@@ -295,7 +302,11 @@ for(const failure of ['disabledWebGL','failedImage','corsImage']) {
       await expect(media(page)).toContainText('Кадр 1')
       await expect(media(page).locator('img')).toHaveCount(0)
     } else await baseImageVisible(page)
-    if(failure==='corsImage') expect(corsFailures.some(error=>/ERR_FAILED|CORS/.test(error || ''))).toBe(true)
+    if(failure==='corsImage') {
+      await expect(media(page).locator('img')).toHaveAttribute('src',corsTextureUrl)
+      expect(corsFailures.some(error=>/ERR_FAILED|CORS/.test(error || ''))).toBe(true)
+      expect(await page.evaluate(()=>window.__flowProbe.cspViolations)).toEqual([])
+    }
     const link=page.locator('.hero-poster').first(),href=await link.getAttribute('href')
     await link.focus()
     await page.keyboard.press('Enter')
