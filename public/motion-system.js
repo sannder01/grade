@@ -1,5 +1,6 @@
 import { gsap, Flip } from './assets/motion-vendor.js'
 import { mountHeroMask } from './hero-motion.js'
+import { mountCollectionsScroll } from './collections-scroll.js'
 
 /*
  * Collection reparenting adapts Codrops ContentLayoutTransition (slideshow.js).
@@ -37,6 +38,7 @@ let mounted = false, sameComposition = false, requestedRoute = '', lastRoute = '
 let pendingLink = null, shared = [], layer = null
 let filmTransition = false
 let disposeHero = null, disposeHeroFlow = null, heroSeen = false
+let disposeCollectionsScroll = null
 const collectionMemories = new Map()
 const visible = node => {
   const box = node?.getBoundingClientRect()
@@ -65,6 +67,7 @@ function mountOptionalHeroFlow(hero) {
   return () => { active = false; cleanup?.() }
 }
 function stopPageEffects() {
+  disposeCollectionsScroll?.(); disposeCollectionsScroll = null
   disposeHeroFlow?.(); disposeHeroFlow = null
   disposeHero?.(); disposeHero = null
   observer?.disconnect(); observer = null
@@ -103,6 +106,9 @@ export async function leavePage(main) {
   filmTransition = mounted && !sameComposition && (titleRoute(requestedRoute) || titleRoute(lastRoute))
   const outgoingOpacity = Number(getComputedStyle(main).opacity)
   neutralizePosterImages(main)
+  // Freeze the actual visible cover positions; measure them before cleanup so
+  // the shared posters start their Flip at precisely the clicked location.
+  disposeCollectionsScroll?.hold?.(true)
   const cards = [...main.querySelectorAll('.title-card')]
   cards.forEach(card => { card.dataset.flipId = `card-${card.dataset.title}` })
   cardState = sameComposition && !reducedMotion() ? Flip.getState(cards,{kill:false}) : null
@@ -185,6 +191,7 @@ function mountShared(main) {
 
 export function mountMotion(main) {
   observer?.disconnect(); pageTween?.kill(); mounted = true
+  disposeCollectionsScroll?.(); disposeCollectionsScroll = null
   disposeHeroFlow?.(); disposeHeroFlow = null
   disposeHero?.(); disposeHero = null
   const hero = main.querySelector('.hero-editorial')
@@ -199,6 +206,11 @@ export function mountMotion(main) {
   lastRoute = location.pathname; requestedRoute = location.pathname; pendingLink = null
   gsap.set(main,{opacity:1,clearProps:'transform'})
   neutralizePosterImages(main)
+  const collectionScene = main.querySelector('[data-collections-scene]')
+  if (collectionScene) {
+    try { disposeCollectionsScroll = mountCollectionsScroll(collectionScene) }
+    catch { collectionScene.dataset.collectionsMotion = 'static' }
+  }
   const cards = [...main.querySelectorAll('.title-card')]
   cards.forEach(card => { card.dataset.flipId = `card-${card.dataset.title}` })
   if (reducedMotion()) {
@@ -206,7 +218,17 @@ export function mountMotion(main) {
     main.querySelectorAll('[data-reveal]').forEach(node => node.removeAttribute('data-reveal'))
     syncNavigation(); return
   }
+  // Set the native-scroll composition before Flip measures its destination,
+  // then hold the parent covers until that transfer finishes.
+  disposeCollectionsScroll?.hold?.(true)
   const transferred = mountShared(main)
+  if (transferred.length && layoutTween) {
+    const incomingScene = disposeCollectionsScroll
+    layoutTween.eventCallback('onComplete',() => {
+      layoutTween = null
+      if (incomingScene === disposeCollectionsScroll) incomingScene?.hold?.(false)
+    })
+  } else disposeCollectionsScroll?.hold?.(false)
   const containsShared = node => transferred.some(image => node === image || node.contains(image))
   if (cardState && sameComposition) {
     layoutTween = Flip.from(cardState,{
@@ -234,7 +256,7 @@ export function mountMotion(main) {
       }
     },{threshold:.03})
     main.querySelectorAll('.title-card,.collection-card,.section-heading,.profile-review,.discussion-item,.onboard-card,.archive-note,.personal-collection').forEach(node => {
-      if (!containsShared(node)) { node.dataset.reveal = 'pending'; observer.observe(node) }
+      if (!containsShared(node) && !node.closest('[data-collections-scene]')) { node.dataset.reveal = 'pending'; observer.observe(node) }
     })
     if (transferred.length) pageContext.add(() => {
       const captions = [...new Set(transferred.map(node => node.closest('.title-card')?.querySelector('.card-info')).filter(Boolean))]
