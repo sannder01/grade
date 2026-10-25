@@ -61,15 +61,19 @@ export function openModal(content, { kind = 'default' } = {}) {
   document.querySelector('#modal-content').innerHTML = content
   modal.querySelector('.modal-close-label').textContent = t('Закрыть')
   openDialog(modal)
-  if (alreadyOpen && kind === 'auth') motion(modal.querySelector('#modal-content'),[{opacity:0,translate:'0 8px'},{opacity:1,translate:'0 0'}],{duration:220})
+  if (alreadyOpen && kind === 'auth') {
+    motion(modal.querySelector('#modal-content'),[{opacity:0},{opacity:1}],{duration:220})
+    modal.querySelector('#auth-form input:not([type="hidden"]):not(:disabled)')?.focus({preventScroll:true})
+  }
   return modal
 }
 export function closeModal() {
   const modal = document.querySelector('#modal')
   const auth = modal.classList.contains('track-auth')
   closeDialog(modal,() => {
-    const target = modalReturnFocus?.isConnected ? modalReturnFocus : auth ? document.querySelector('#account button,#account a') : null
-    if (target && !target.closest('[inert]')) target.focus({preventScroll:true})
+    const available = node => node?.isConnected && node.matches('a[href],button,input,select,textarea,[tabindex],[contenteditable=true]') && !node.disabled && !node.closest('[inert]') && node.getClientRects().length > 0
+    const target = available(modalReturnFocus) ? modalReturnFocus : auth ? document.querySelector('#account button,#account a') : null
+    if (available(target)) target.focus({preventScroll:true})
     modalReturnFocus = null
   })
 }

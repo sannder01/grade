@@ -277,11 +277,14 @@ export function openDialog(dialog) {
   if (!dialog.open) dialog.showModal()
   document.dispatchEvent(new CustomEvent('grade:dialog-open',{detail:dialog}))
   if (old) { old.closing = false; old.timeline.eventCallback('onReverseComplete',null).play(); return }
-  if (reducedMotion()) { gsap.set(dialog,{'--backdrop-opacity':1}); return }
+  if (reducedMotion()) { gsap.set(dialog,{'--backdrop-opacity':1,'--scene-type-progress':1}); return }
   const sidePanel = dialog.classList.contains('track-auth')
   const timeline = gsap.timeline({paused:true}).fromTo(dialog,
     {opacity:sidePanel ? 1 : 0,xPercent:sidePanel ? 100 : 0,y:sidePanel ? 0 : 14,'--backdrop-opacity':0},
     {opacity:1,xPercent:0,y:0,'--backdrop-opacity':1,duration:.6,ease:'power3.inOut'})
+  // Auth headings are replaced when switching forms. Animate their stable
+  // dialog ancestor so fresh text inherits the same reversible playhead.
+  if (sidePanel) timeline.fromTo(dialog,{'--scene-type-progress':0},{'--scene-type-progress':1,duration:.46,ease:'power3.inOut'},.12)
   dialogs.set(dialog,{timeline,closing:false}); activeDialogs.add(dialog); timeline.play()
 }
 export function closeDialog(dialog, after = () => {}) {
@@ -290,7 +293,7 @@ export function closeDialog(dialog, after = () => {}) {
   const state = dialogs.get(dialog)
   const finish = () => {
     dialog.close(); state?.timeline.kill(); dialogs.delete(dialog); activeDialogs.delete(dialog)
-    gsap.set(dialog,{clearProps:'transform,opacity,--backdrop-opacity'}); after()
+    gsap.set(dialog,{clearProps:'transform,opacity,--backdrop-opacity,--scene-type-progress'}); after()
   }
   // Reversing at time zero cannot cross a boundary or fire onReverseComplete.
   if (reducedMotion() || !state || state.timeline.totalTime() === 0) { finish(); return }

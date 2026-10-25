@@ -126,10 +126,14 @@ function settleClosed(panel) {
 // The current progress is retained when direction changes. Reusing a timeline
 // keeps interrupted opens and closes continuous, as in the Codrops source.
 function createScene(panel, button) {
-  gsap.set(panel,{clipPath:'inset(0% 0% 100% 0%)'})
-  const parts = panel.querySelectorAll('[data-scene-reveal]')
+  gsap.set(panel,{clipPath:'inset(0% 0% 100% 0%)','--scene-type-progress':0})
+  // The scalar belongs to the stable panel, so translated labels and replaced
+  // text inherit its current position without splitting or rebuilding a tween.
+  const parts = [...panel.querySelectorAll('[data-scene-reveal]')]
+    .filter(node => !node.matches('.scene-nav a,.search-scene-title'))
   const timeline = gsap.timeline({paused:true,onReverseComplete:() => settleClosed(panel)})
     .to(panel,{clipPath:'inset(0% 0% 0% 0%)',duration:.6,ease:'power3.inOut',easeReverse:true},0)
+    .to(panel,{'--scene-type-progress':1,duration:.48,ease:'power3.inOut'},.1)
     .fromTo(parts,{y:22,opacity:0},{y:0,opacity:1,duration:.35,ease:'power3.out',stagger:.035},.08)
   panels.set(panel,{button,timeline})
 }
@@ -143,13 +147,14 @@ function closeScene(panel, restoreFocus = false, immediate = false) {
   panel.inert = true
   if (panel === searchPanel) { stopSearch(); header.classList.remove('search-is-open') }
   if (restoreFocus) {
-    const target = previousFocus?.isConnected && !previousFocus.closest('[inert]') ? previousFocus : state.button
+    const available = previousFocus?.isConnected && previousFocus.matches('a[href],button,input,select,textarea,[tabindex],[contenteditable=true]') && !previousFocus.disabled && !previousFocus.closest('[inert]') && previousFocus.getClientRects().length > 0
+    const target = available ? previousFocus : state.button
     target.focus({preventScroll:true})
   }
   if (reducedMotion() || immediate) {
     state.timeline.progress(0).pause()
     settleClosed(panel)
-  } else if (state.timeline.progress() === 0) settleClosed(panel)
+  } else if (state.timeline.progress() === 0) { state.timeline.pause(); settleClosed(panel) }
   else state.timeline.timeScale(1).reverse()
 }
 
