@@ -58,7 +58,7 @@ async function fixtures(page,{language='ru',noWebGL=false,noFloat=false,failedRe
       s.renderer.readRenderTargetPixels(s.velocityTarget,0,0,s.width,s.height,entry.velocities)
       const p=entry.positions,v=entry.velocities,home=s.homeTexture.image.data
       const summarize=(start,count,near=false)=>{
-        let n=0,error=0,zError=0,energy=0,cx=0,cy=0,cz=0,finite=true
+        let n=0,error=0,zError=0,energy=0,zEnergy=0,cx=0,cy=0,cz=0,finite=true
         const samples=[],bounds={left:Infinity,right:-Infinity,top:Infinity,bottom:-Infinity}
         const m=s.matrixWorld,q=s.viewProjection,rect=probe.lastCanvas.getBoundingClientRect(),corridor=probe.corridor
         for(let i=start;i<start+count;i++){
@@ -74,12 +74,13 @@ async function fixtures(page,{language='ru',noWebGL=false,noFloat=false,failedRe
           n++;cx+=p[k];cy+=p[k+1];cz+=p[k+2]
           error+=(p[k]-x)**2+(p[k+1]-y)**2+(p[k+2]-z)**2;zError+=(p[k+2]-z)**2
           energy+=v[k]**2+v[k+1]**2+v[k+2]**2
+          zEnergy+=v[k+2]**2
           finite&&=Number.isFinite(p[k]+p[k+1]+p[k+2]+v[k]+v[k+1]+v[k+2])
           if((i-start)%Math.max(1,Math.floor(count/384))===0)samples.push(p[k],p[k+1],p[k+2])
         }
-        return {count:n,rms:Math.sqrt(error/Math.max(1,n)),zRms:Math.sqrt(zError/Math.max(1,n)),energy:energy/Math.max(1,n),center:[cx/n,cy/n,cz/n],finite,samples,bounds}
+        return {count:n,rms:Math.sqrt(error/Math.max(1,n)),zRms:Math.sqrt(zError/Math.max(1,n)),energy:energy/Math.max(1,n),zEnergy:zEnergy/Math.max(1,n),center:[cx/n,cy/n,cz/n],finite,samples,bounds}
       }
-      return {id:s.id,step:s.step,time:s.time,core:summarize(0,s.coreCount),near:summarize(0,s.coreCount,true),dust:summarize(s.coreCount,s.dustCount),ray:s.ray,pointerActive:s.pointerActive,pointerSpeed:s.pointerSpeed,inputRevision:s.inputRevision,
+      return {id:s.id,step:s.step,time:s.time,wall:performance.now(),core:summarize(0,s.coreCount),near:summarize(0,s.coreCount,true),dust:summarize(s.coreCount,s.dustCount),ray:s.ray,pointerActive:s.pointerActive,pointerSpeed:s.pointerSpeed,inputRevision:s.inputRevision,
         positionPool:entry.positionPool.length,velocityPool:entry.velocityPool.length}
     }
     document.addEventListener('grade:hero-scene-frame',event=>{
@@ -114,7 +115,7 @@ async function fixtures(page,{language='ru',noWebGL=false,noFloat=false,failedRe
         if(!current){current={id:simulation.id,positionPool:[],velocityPool:[]};probe.simulations.push(current)}
         if(!current.positionPool.includes(simulation.positionTarget))current.positionPool.push(simulation.positionTarget)
         if(!current.velocityPool.includes(simulation.velocityTarget))current.velocityPool.push(simulation.velocityTarget)
-        if(probe.monitor&&simulation.time-(probe.lastSampleTime||0)>.1){
+        if(probe.monitor&&(probe.monitorEveryStep||simulation.time-(probe.lastSampleTime||0)>.1)){
           try{probe.samples.push(probe.readSimulation());probe.lastSampleTime=simulation.time}catch(error){probe.errors.push(error.message)}
         }
       }
@@ -372,6 +373,7 @@ test('visible physics stays alive, opaque scenes pause it and a partial auth pan
 })
 
 test('GPU velocities produce stronger fast repulsion, depth, inertia and a damped return to the real home shape',async({page},testInfo)=>{
+  test.setTimeout(90000)
   const audit=await fixtures(page)
   await open(page);await gpuReady(page);await assembled(page);await advance(page,1)
   const initial=await physical(page),bounds=initial.core.bounds
@@ -379,24 +381,42 @@ test('GPU velocities produce stronger fast repulsion, depth, inertia and a dampe
   await page.evaluate(path=>{window.__sceneProbe.corridor=path},path)
   const baseline=await physical(page)
   expect(baseline.near.count).toBeGreaterThan(20)
+  const cpuRate=Number(process.env.GRADE_PARTICLE_TEST_CPU_RATE||1)
+  const cpuSession=cpuRate>1?await page.context().newCDPSession(page):null
+  if(cpuSession)await cpuSession.send('Emulation.setCPUThrottlingRate',{rate:cpuRate})
+  try{
+  await page.evaluate(async()=>{
+    const input=(await import('/particle-input.js')).getParticleInput(),probe=window.__sceneProbe
+    // Registered after the production window handler: observe the actual input
+    // event before its speed decays while waiting for a slow GPU/RAF callback.
+    window.addEventListener('pointermove',()=>{
+      if(probe.inputRecording)probe.gestureEvents.push({speed:input.pointer.speed,x:input.pointer.x,y:input.pointer.y,at:performance.now()})
+    },{passive:true})
+  })
   async function sweep(duration){
     await page.mouse.move(path.left,path.y)
     await advance(page,.8)
-    await page.evaluate(()=>{const probe=window.__sceneProbe;probe.samples=[];probe.monitor=true;probe.lastSampleTime=0})
+    await page.evaluate(()=>{const probe=window.__sceneProbe;probe.samples=[];probe.gestureEvents=[];probe.inputRecording=true;probe.monitor=true;probe.monitorEveryStep=true;probe.lastSampleTime=0})
     const segments=duration<200?1:12
     for(let index=1;index<=segments;index++){
       await page.mouse.move(path.left+(path.right-path.left)*index/segments,path.y)
       await page.waitForTimeout(duration/segments)
     }
-    await advance(page,.45)
-    await page.evaluate(()=>{window.__sceneProbe.monitor=false})
-    return page.evaluate(()=>window.__sceneProbe.samples.map(sample=>({energy:sample.near.energy,rms:sample.near.rms,zRms:sample.near.zRms,speed:sample.pointerSpeed,time:sample.time})))
+    const lastStep=await page.evaluate(()=>{window.__sceneProbe.inputRecording=false;return window.__sceneProbe.lastSimulation.step})
+    await expect.poll(()=>page.evaluate(()=>window.__sceneProbe.lastSimulation.step),{timeout:30000}).toBeGreaterThanOrEqual(lastStep+8)
+    await page.evaluate(()=>{window.__sceneProbe.monitor=false;window.__sceneProbe.monitorEveryStep=false})
+    return page.evaluate(()=>({events:window.__sceneProbe.gestureEvents,samples:window.__sceneProbe.samples.map(sample=>({energy:sample.near.energy,rms:sample.near.rms,zRms:sample.near.zRms,zEnergy:sample.near.zEnergy,speed:sample.pointerSpeed,time:sample.time,wall:sample.wall,z:sample.near.samples.filter((_,index)=>index%3===2)}))}))
   }
   const slow=await sweep(1000)
   await page.mouse.move(0,0);await advance(page,2)
   const fast=await sweep(80)
   const maximum=(samples,key)=>Math.max(...samples.map(sample=>sample[key]))
-  const peak={slowEnergy:maximum(slow,'energy'),fastEnergy:maximum(fast,'energy'),slowSpeed:maximum(slow,'speed'),fastSpeed:maximum(fast,'speed'),fastDepth:maximum(fast,'zRms'),baselineDepth:baseline.near.zRms}
+  const cadence=fast.samples.slice(1).map((sample,index)=>sample.wall-fast.samples[index].wall).sort((a,b)=>a-b)
+  const zMotion=samples=>Math.max(...samples.slice(1).map((sample,index)=>rmsDifference(sample.z,samples[index].z)))
+  const peak={slowEnergy:maximum(slow.samples,'energy'),fastEnergy:maximum(fast.samples,'energy'),slowSpeed:maximum(slow.events,'speed'),fastSpeed:maximum(fast.events,'speed'),
+    sampledSlowSpeed:maximum(slow.samples,'speed'),sampledFastSpeed:maximum(fast.samples,'speed'),slowSamples:slow.samples.length,fastSamples:fast.samples.length,
+    fastDepth:maximum(fast.samples,'zRms'),baselineDepth:baseline.near.zRms,fastZEnergy:maximum(fast.samples,'zEnergy'),baselineZEnergy:baseline.near.zEnergy,
+    fastZMotion:zMotion(fast.samples),slowZMotion:zMotion(slow.samples),wallCadenceP95:cadence[Math.floor((cadence.length-1)*.95)],cpuRate}
   await testInfo.attach('real-gpu-response',{body:JSON.stringify(peak),contentType:'application/json'})
   expect(peak.fastSpeed).toBeGreaterThan(peak.slowSpeed+.1)
   expect(peak.fastEnergy).toBeGreaterThan(peak.slowEnergy*1.05)
@@ -414,11 +434,12 @@ test('GPU velocities produce stronger fast repulsion, depth, inertia and a dampe
   const evidence=testInfo.outputPath('real-gpu-response.json')
   await writeFile(evidence,JSON.stringify(metrics,null,2))
   await testInfo.attach('real-gpu-response-complete',{path:evidence,contentType:'application/json'})
-  expect(returned.near.rms).toBeLessThan(Math.max(...fast.map(sample=>sample.rms))*.85)
+  expect(returned.near.rms).toBeLessThan(Math.max(...fast.samples.map(sample=>sample.rms))*.85)
   expect(returned.near.energy).toBeLessThan(peak.fastEnergy*.5)
   expect(returned.core.finite&&returned.dust.finite).toBe(true)
   expect(returned.id).toBe(initial.id)
   clean(audit)
+  }finally{if(cpuSession)await cpuSession.detach()}
 })
 
 test('a stationary screen pointer keeps its ray current while scrolling the same GPU position and velocity targets',async({page})=>{
