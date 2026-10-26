@@ -74,11 +74,23 @@ async function contents(page){
   await expect(gallery(page).locator('canvas')).toHaveCount(0)
   for(const slug of slugs)await expect(gallery(page).locator(`.collection-card[data-collection-slug="${slug}"]`)).toHaveAttribute('href',`/collections/${slug}`)
 }
-async function stable(page){return gallery(page).evaluate(async root=>{
-  const frame=root.dataset.galleryFrames,start=performance.now();let samples=0
-  while(performance.now()-start<180){await new Promise(requestAnimationFrame);samples++;if(root.dataset.galleryFrames!==frame)return false}
-  return samples>2
-})}
+async function stable(page){
+  const observed=await gallery(page).evaluate(async root=>{
+    const initial=root.dataset.galleryFrames,start=performance.now(),frames=[]
+    // Keep both guarantees on a busy CI renderer: at least 180 ms AND three
+    // presented samples. Fewer samples in that interval do not mean movement.
+    // Record every counter so a real transient frame still fails explicitly.
+    while(performance.now()-start<180 || frames.length<3){
+      await new Promise(requestAnimationFrame);frames.push(root.dataset.galleryFrames)
+    }
+    return {initial,frames,samples:frames.length,elapsed:performance.now()-start,
+      changed:frames.some(frame=>frame!==initial),reason:root.dataset.galleryReason}
+  })
+  expect(observed.changed,JSON.stringify(observed)).toBe(false)
+  expect(observed.samples).toBeGreaterThanOrEqual(3)
+  expect(observed.elapsed).toBeGreaterThanOrEqual(180)
+  return true
+}
 async function settled(page){
   await ready(page)
   await expect(page.locator('.collection-motion-layer,.flying-poster')).toHaveCount(0)
