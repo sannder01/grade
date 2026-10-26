@@ -41,9 +41,9 @@ test('an interpolated fading trail stays click-through across routes and preserv
   const strip={x:160,y:155,width:740,height:50}
   await expect.poll(async()=>(await pixels(page,strip)).coverage).toBeGreaterThan(.75)
   const bright=await pixels(page,strip)
-  await page.waitForTimeout(420)
-  expect((await pixels(page,strip)).sum).toBeLessThan(bright.sum*.8)
-  await expect.poll(async()=>(await pixels(page,strip)).maximum,{timeout:2500}).toBe(0)
+  expect(bright.maximum).toBeGreaterThan(0)
+  await page.waitForTimeout(220)
+  expect((await pixels(page,strip)).maximum).toBe(0)
   const line=await page.locator('.about-page p').first().evaluate(node=>{const range=document.createRange();range.selectNodeContents(node);return range.getClientRects()[0].toJSON()})
   await page.mouse.move(line.x+2,line.y+line.height/2);await page.mouse.down()
   await page.mouse.move(line.x+Math.min(line.width-2,500),line.y+line.height/2,{steps:8});await page.mouse.up()
@@ -67,16 +67,22 @@ test('an interpolated fading trail stays click-through across routes and preserv
   expect(failures).toEqual([])
 })
 
-test('touch leaves the mouse trail empty while native scrolling and reduced motion remain usable',async({browser,baseURL})=>{
+test('a finger paints a short trail and the shared particle field while native scrolling remains usable',async({browser,baseURL})=>{
   const context=await browser.newContext({baseURL,viewport:{width:390,height:844},isMobile:true,hasTouch:true,reducedMotion:'no-preference'})
   try{
     const page=await context.newPage(),failures=await fixtures(page)
     await page.goto('/about');await expect(page.locator('.about-page')).toBeVisible();await expect(trail(page)).toHaveCount(1)
     const cdp=await context.newCDPSession(page)
     await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:190,y:620}]})
-    for(const y of [560,490,420,340])await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:190,y}]})
+    for(const y of [560,490,420,340]){
+      await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:190,y}]})
+      await page.waitForTimeout(25)
+    }
+    expect(await page.evaluate(async()=>{const {getParticleInput}=await import('/particle-input.js');const input=getParticleInput();return input.pointer.active&&input.pointer.y===340})).toBe(true)
+    expect((await pixels(page,{x:0,y:0,width:390,height:844})).maximum).toBeGreaterThan(0)
     await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]})
     await expect.poll(()=>page.evaluate(()=>scrollY)).toBeGreaterThan(40)
+    await page.waitForTimeout(220)
     expect((await pixels(page,{x:0,y:0,width:390,height:844})).maximum).toBe(0)
     expect(await page.evaluate(async()=>{const {getParticleInput}=await import('/particle-input.js');return getParticleInput().pointer.active})).toBe(false)
     await page.emulateMedia({reducedMotion:'reduce'})

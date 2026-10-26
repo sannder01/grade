@@ -21,7 +21,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-const FIELD_EDGE=256, FIELD_TAU=350, TRAIL_TAU=360, TRAIL_LIFE=1150
+const FIELD_EDGE=256, FIELD_TAU=150, TRAIL_TAU=38, TRAIL_LIFE=150
 const clamp=(value,min=0,max=1)=>Math.max(min,Math.min(max,value))
 let singleton=null
 
@@ -34,6 +34,7 @@ function createInput() {
   let mounted=false,disposed=false,abort=null,dialogObserver=null,raf=0
   let previous=null,lastMove=0,lastTrail=0,lastUpdate=-1,lastDraw=-1,fieldUntil=0
   let speed=0,directionX=0,directionY=0,seed=73019,queue=[]
+  let touchId=null
   const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296}
   const now=()=>performance.now()
   const trailAllowed=()=>!preference.matches && !document.hidden && !document.querySelector('dialog[open]')
@@ -51,7 +52,7 @@ function createInput() {
   function release(hard=false) {
     pointer.active=false;pointer.speed=0;pointer.dx=0;pointer.dy=0
     previous=null;speed=0;directionX=0;directionY=0
-    if(hard){queue=[];fieldUntil=0;neutral();clearTrail();stop();lastUpdate=-1}
+    if(hard){touchId=null;queue=[];fieldUntil=0;neutral();clearTrail();stop();lastUpdate=-1}
     else {
       // A stationary field is still live even after the visible trail slept.
       // Give that residual the same decay window when the pointer leaves.
@@ -159,12 +160,29 @@ function createInput() {
   }
   function move(event) {
     if(preference.matches || document.hidden)return
-    if(event.pointerType==='touch'){release(true);return}
+    if(event.pointerType==='touch')return
     if(event.clientX<0 || event.clientY<0 || event.clientX>viewportWidth || event.clientY>viewportHeight){release();return}
     const time=now(),coalesced=event.getCoalescedEvents?.() || []
     for(const sampleEvent of coalesced)sample(sampleEvent,time)
     if(!coalesced.length || coalesced.at(-1).clientX!==event.clientX || coalesced.at(-1).clientY!==event.clientY)sample(event,time)
     if(trailAllowed()){lastTrail=time;wake()}else update(time)
+  }
+  function touchSample(event,start=false) {
+    if(preference.matches || document.hidden)return
+    if(start){
+      if(touchId!==null)return
+      const first=event.changedTouches[0];if(!first)return
+      previous=null;touchId=first.identifier
+    }
+    const contact=[...event.touches].find(item=>item.identifier===touchId)
+    if(!contact)return
+    const time=now()
+    sample({clientX:contact.clientX,clientY:contact.clientY,timeStamp:event.timeStamp},time)
+    if(trailAllowed()){lastTrail=time;wake()}else update(time)
+  }
+  function touchEnd(event) {
+    if(![...event.changedTouches].some(item=>item.identifier===touchId))return
+    touchId=null;release()
   }
   function syncVisibility() {
     if(preference.matches || document.hidden){release(true);if(overlay)overlay.hidden=true;return}
@@ -180,10 +198,15 @@ function createInput() {
     overlay.setAttribute('aria-hidden','true');overlay.setAttribute('role','presentation');overlay.inert=true
     trail=overlay.getContext('2d');document.body.append(overlay);resize();syncVisibility()
     window.addEventListener('pointermove',move,passive)
-    window.addEventListener('pointerdown',event=>{if(event.pointerType==='touch')release(true)},passive)
-    document.documentElement.addEventListener('pointerleave',()=>release(),passive)
+    // Native panning cancels PointerEvents. Passive TouchEvents keep the same
+    // field following the finger through a scroll without capturing the gesture.
+    window.addEventListener('touchstart',event=>touchSample(event,true),passive)
+    window.addEventListener('touchmove',event=>touchSample(event),passive)
+    window.addEventListener('touchend',touchEnd,passive)
+    window.addEventListener('touchcancel',touchEnd,passive)
+    document.documentElement.addEventListener('pointerleave',event=>{if(event.pointerType!=='touch')release()},passive)
     window.addEventListener('pointerout',event=>{if(event.relatedTarget===null && event.pointerType!=='touch')release()},passive)
-    window.addEventListener('pointercancel',()=>release(),passive)
+    window.addEventListener('pointercancel',event=>{if(event.pointerType!=='touch')release()},passive)
     window.addEventListener('blur',()=>release(true),passive)
     window.addEventListener('resize',resize,passive)
     window.visualViewport?.addEventListener('resize',resize,passive)
