@@ -32,16 +32,29 @@ test('poster hover and keyboard focus use a neutral highlight, and text underlin
   expect(lineStyle.duration).toBeGreaterThanOrEqual(.18)
   expect(lineStyle.duration).toBeLessThanOrEqual(.25)
   expect(lineStyle.property).toContain('transform')
-  const lineSamples=textLink.evaluate(async node=>{
-    const values=[],start=performance.now()
-    while(performance.now()-start<450) {
+  // Observe the browser's real transition, not protocol time before hover.
+  // Initial WebGL compilation can delay input without changing the CSS motion.
+  const lineSamples=textLink.evaluate(node=>new Promise(resolve=>{
+    const values=[];let frame=0,started=false
+    const relevant=event=>event.target===node && event.pseudoElement==='::after' && event.propertyName==='transform'
+    const sample=()=>{
       values.push(new DOMMatrixReadOnly(getComputedStyle(node,'::after').transform).a)
-      await new Promise(requestAnimationFrame)
+      frame=requestAnimationFrame(sample)
     }
-    return values
-  })
+    const begin=event=>{if(relevant(event) && !started){started=true;sample()}}
+    const finish=event=>{
+      if(!relevant(event) || !started)return
+      cancelAnimationFrame(frame)
+      values.push(new DOMMatrixReadOnly(getComputedStyle(node,'::after').transform).a)
+      node.removeEventListener('transitionrun',begin);node.removeEventListener('transitionend',finish)
+      resolve({values,elapsed:event.elapsedTime})
+    }
+    node.addEventListener('transitionrun',begin);node.addEventListener('transitionend',finish)
+  }))
   await textLink.hover()
-  const lineValues=await lineSamples
+  const {values:lineValues,elapsed}=await lineSamples
+  expect(elapsed).toBeGreaterThanOrEqual(.18)
+  expect(elapsed).toBeLessThanOrEqual(.25)
   expect(lineValues.some(value=>value>.05 && value<.95)).toBe(true)
   expect(lineValues.at(-1)).toBeGreaterThan(.99)
 
