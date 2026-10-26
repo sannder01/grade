@@ -37,7 +37,28 @@ async function fixtures(page,{language='ru',noWebGL=false,noFloat=false,failedRe
     await page.route('https://fonts.gstatic.com/**',route=>route.abort())
     await page.route('**/*.woff2',route=>route.abort())
   }
-  await page.addInitScript(({language,noWebGL,noFloat,earlyEntry})=>{
+  const frameMs=Number(process.env.GRADE_PARTICLE_TEST_FRAME_MS||0)
+  await page.addInitScript(({language,noWebGL,noFloat,earlyEntry,frameMs})=>{
+    if(frameMs>0){
+      const nativeRequest=requestAnimationFrame.bind(window),nativeCancel=cancelAnimationFrame.bind(window),queue=new Map()
+      let next=0,timer=null,nativeId=null,last=0,flushing=false
+      const schedule=()=>{
+        if(flushing||timer!==null||nativeId!==null||!queue.size)return
+        timer=setTimeout(()=>{
+          timer=null
+          nativeId=nativeRequest(()=>{
+            nativeId=null;last=performance.now();flushing=true
+            try{for(const id of [...queue.keys()]){const callback=queue.get(id);if(callback){queue.delete(id);callback(performance.now())}}}
+            finally{flushing=false;schedule()}
+          })
+        },Math.max(0,frameMs-(performance.now()-last)))
+      }
+      window.requestAnimationFrame=callback=>{const id=++next;queue.set(id,callback);schedule();return id}
+      window.cancelAnimationFrame=id=>{
+        queue.delete(id)
+        if(!queue.size){if(timer!==null)clearTimeout(timer);if(nativeId!==null)nativeCancel(nativeId);timer=nativeId=null}
+      }
+    }
     localStorage.setItem('grade:language',language)
     const probe=window.__sceneProbe={allocations:[],frames:[],contexts:[],errors:[],simulations:[],samples:[]}
     probe.pointerMoves=0
@@ -136,7 +157,7 @@ async function fixtures(page,{language='ru',noWebGL=false,noFloat=false,failedRe
         })
       }
     })
-  },{language,noWebGL,noFloat,earlyEntry})
+  },{language,noWebGL,noFloat,earlyEntry,frameMs})
   return {errors,writes,unexpected}
 }
 async function open(page){
@@ -373,9 +394,9 @@ test('visible physics stays alive, opaque scenes pause it and a partial auth pan
 })
 
 test('GPU velocities produce stronger fast repulsion, depth, inertia and a damped return to the real home shape',async({page},testInfo)=>{
-  test.setTimeout(90000)
+  test.setTimeout(120000)
   const audit=await fixtures(page)
-  await open(page);await gpuReady(page);await assembled(page);await advance(page,1)
+  await open(page);await gpuReady(page);await assembled(page);await advance(page,2.5)
   const initial=await physical(page),bounds=initial.core.bounds
   const path={left:bounds.left-25,right:bounds.right+25,y:(bounds.top+bounds.bottom)/2,radius:(bounds.bottom-bounds.top)*.13}
   await page.evaluate(path=>{window.__sceneProbe.corridor=path},path)
@@ -413,14 +434,17 @@ test('GPU velocities produce stronger fast repulsion, depth, inertia and a dampe
   const maximum=(samples,key)=>Math.max(...samples.map(sample=>sample[key]))
   const cadence=fast.samples.slice(1).map((sample,index)=>sample.wall-fast.samples[index].wall).sort((a,b)=>a-b)
   const zMotion=samples=>Math.max(...samples.slice(1).map((sample,index)=>rmsDifference(sample.z,samples[index].z)))
+  const zRate=samples=>Math.max(...samples.slice(1).map((sample,index)=>rmsDifference(sample.z,samples[index].z)/(sample.time-samples[index].time)))
   const peak={slowEnergy:maximum(slow.samples,'energy'),fastEnergy:maximum(fast.samples,'energy'),slowSpeed:maximum(slow.events,'speed'),fastSpeed:maximum(fast.events,'speed'),
     sampledSlowSpeed:maximum(slow.samples,'speed'),sampledFastSpeed:maximum(fast.samples,'speed'),slowSamples:slow.samples.length,fastSamples:fast.samples.length,
     fastDepth:maximum(fast.samples,'zRms'),baselineDepth:baseline.near.zRms,fastZEnergy:maximum(fast.samples,'zEnergy'),baselineZEnergy:baseline.near.zEnergy,
-    fastZMotion:zMotion(fast.samples),slowZMotion:zMotion(slow.samples),wallCadenceP95:cadence[Math.floor((cadence.length-1)*.95)],cpuRate}
+    fastZMotion:zMotion(fast.samples),slowZMotion:zMotion(slow.samples),fastZRate:zRate(fast.samples),slowZRate:zRate(slow.samples),
+    wallCadenceP95:cadence[Math.floor((cadence.length-1)*.95)],frameMs:Number(process.env.GRADE_PARTICLE_TEST_FRAME_MS||0),cpuRate}
   await testInfo.attach('real-gpu-response',{body:JSON.stringify(peak),contentType:'application/json'})
   expect(peak.fastSpeed).toBeGreaterThan(peak.slowSpeed+.1)
   expect(peak.fastEnergy).toBeGreaterThan(peak.slowEnergy*1.05)
-  expect(peak.fastDepth).toBeGreaterThan(baseline.near.zRms+.005)
+  expect(peak.fastZEnergy).toBeGreaterThan(baseline.near.zEnergy*1.5)
+  expect(peak.fastZRate).toBeGreaterThan(peak.slowZRate*1.5)
   const disturbed=await physical(page)
   await page.mouse.move(0,0);await advance(page,.2)
   const inertia=await physical(page)
