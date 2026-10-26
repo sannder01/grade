@@ -303,12 +303,14 @@ test('the editorial composition and public pages fit phone, tablet and desktop',
       if (path==='/' && [390,1440].includes(width)) {
         const heading=page.locator('.hero h1')
         const size=await heading.evaluate(node=>parseFloat(getComputedStyle(node).fontSize))
-        expect(size).toBeGreaterThanOrEqual(width===390 ? 36 : 72)
-        expect(size).toBeLessThanOrEqual(width===390 ? 48 : 112)
-        const text=await page.locator('.hero-content').boundingBox()
-        const posters=await page.locator('.hero-posters').boundingBox()
-        if (width===390) expect(posters.y).toBeGreaterThanOrEqual(text.y+text.height-1)
-        else expect(posters.x).toBeGreaterThan(text.x+text.width/2)
+        expect(size).toBeGreaterThanOrEqual(width===390 ? 46 : 96)
+        expect(size).toBeLessThanOrEqual(width===390 ? 64 : 160)
+        const stage=await page.locator('[data-hero-stage]').boundingBox()
+        const filmstrip=await page.locator('.cinema-filmstrip').boundingBox()
+        expect(stage.width).toBeGreaterThanOrEqual(width-1)
+        expect(stage.height).toBeGreaterThan(600)
+        expect(filmstrip.y).toBeGreaterThanOrEqual(stage.y+stage.height)
+        await expect(page.locator('.cinema-film-link')).toHaveCount(4)
       }
     }
     await expect(page.locator('.menu-trigger')).toBeVisible()

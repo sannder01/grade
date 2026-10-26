@@ -41,6 +41,7 @@ jobs:
       - run: npm run build:glass
       - run: npm run build:motion
       - run: npm run build:flow
+      - run: npm run build:hero-scene
       - run: git diff --exit-code -- public/assets/
       - run: npm run check
       - run: npm test

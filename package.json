@@ -15,7 +15,8 @@
     "migrate": "node --env-file-if-exists=.env scripts/migrate.mjs",
     "build:glass": "node scripts/build-glass.mjs",
     "build:motion": "node scripts/build-motion.mjs",
-    "build:flow": "node scripts/build-flow.mjs"
+    "build:flow": "node scripts/build-flow.mjs",
+    "build:hero-scene": "node scripts/build-hero-scene.mjs"
   },
   "dependencies": {
     "better-auth": "1.7.8",
@@ -25,7 +26,8 @@
     "ogl": "1.0.11",
     "pg": "8.16.3",
     "react": "19.3.1",
-    "react-dom": "19.3.1"
+    "react-dom": "19.3.1",
+    "three": "0.186.1"
   },
   "devDependencies": {
     "@playwright/test": "1.55.1",

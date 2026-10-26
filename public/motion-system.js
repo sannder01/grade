@@ -1,5 +1,4 @@
 import { gsap, Flip } from './assets/motion-vendor.js'
-import { mountHeroMask } from './hero-motion.js'
 import { mountCollectionsScroll } from './collections-scroll.js'
 
 /*
@@ -37,7 +36,7 @@ let observer, pageContext, pageTween, layoutTween, cardState, sharedState
 let mounted = false, sameComposition = false, requestedRoute = '', lastRoute = ''
 let pendingLink = null, shared = [], layer = null
 let filmTransition = false
-let disposeHero = null, disposeHeroFlow = null, heroSeen = false
+let disposeHero = null, heroSeen = false
 let disposeCollectionsScroll = null
 const collectionMemories = new Map()
 const visible = node => {
@@ -58,18 +57,36 @@ function neutralizePosterImages(main) {
   gsap.killTweensOf(images)
   gsap.set(images,{clearProps:'transform,translate,scale'})
 }
-function mountOptionalHeroFlow(hero) {
+function mountOptionalHeroScene(hero, animate) {
   let active = true, cleanup = null
-  // A decorative module must never block the archive if its request fails.
-  import('./hero-flow.js').then(({mountHeroFlow}) => {
-    if (active && hero.isConnected) cleanup = mountHeroFlow(hero)
-  }).catch(() => { if (active && hero.isConnected) hero.dataset.heroFlow = 'fallback' })
-  return () => { active = false; cleanup?.() }
+  const copy = animate && !reducedMotion() ? gsap.context(() => {
+    gsap.fromTo(hero.querySelectorAll('.cinema-title-line'),
+      {clipPath:'inset(100% 0% 0% 0%)',y:18},
+      {clipPath:'inset(0% 0% 0% 0%)',y:0,duration:1.1,delay:.25,stagger:.12,ease:'power3.inOut',clearProps:'clipPath,transform'})
+    gsap.fromTo(hero.querySelector('.cinema-kicker'),{opacity:.45,y:6},{opacity:1,y:0,duration:.75,clearProps:'opacity,transform'})
+  },hero) : null
+  const settleCopy = () => { if (reducedMotion()) copy?.revert() }
+  preference.addEventListener('change',settleCopy)
+  // The film collection and its actions remain usable if the optional 3D
+  // module cannot load, or if navigation finishes before it is available.
+  import('./hero-scene.js').then(({mountHeroScene}) => {
+    if (active && hero.isConnected) cleanup = mountHeroScene(hero,{animate})
+  }).catch(() => {
+    if (active && hero.isConnected) {
+      hero.dataset.heroScene = hero.dataset.heroSceneState = 'fallback'
+      hero.dataset.heroSceneMode = 'static'
+    }
+  })
+  return () => {
+    active = false
+    preference.removeEventListener('change',settleCopy)
+    copy?.revert(); cleanup?.()
+  }
 }
 function stopPageEffects() {
   disposeCollectionsScroll?.(); disposeCollectionsScroll = null
-  disposeHeroFlow?.(); disposeHeroFlow = null
-  disposeHero?.(); disposeHero = null
+  // Keep the current 3D frame through the route's dissolve. mountMotion owns
+  // disposal immediately after DOM replacement, before mounting another scene.
   observer?.disconnect(); observer = null
   pageTween?.kill(); pageTween = null
   layoutTween?.kill(); layoutTween = null
@@ -192,14 +209,12 @@ function mountShared(main) {
 export function mountMotion(main) {
   observer?.disconnect(); pageTween?.kill(); mounted = true
   disposeCollectionsScroll?.(); disposeCollectionsScroll = null
-  disposeHeroFlow?.(); disposeHeroFlow = null
   disposeHero?.(); disposeHero = null
-  const hero = main.querySelector('.hero-editorial')
+  const hero = main.querySelector('[data-hero-scene]')
   if (hero) {
     const animate = !heroSeen
     heroSeen = true
-    disposeHero = mountHeroMask(hero,{animate})
-    disposeHeroFlow = mountOptionalHeroFlow(hero)
+    disposeHero = mountOptionalHeroScene(hero,animate)
   }
   const calmFilm = filmTransition || titleRoute(location.pathname)
   filmTransition = false
