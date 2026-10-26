@@ -550,5 +550,6 @@ window.addEventListener('popstate',() => {
 applyShell()
 initializeHeader()
 enableGestures(main,navigate)
+void import('./particle-input.js').then(({mountParticleInput})=>mountParticleInput()).catch(()=>{})
 try { await refreshMe() } catch (error) { toast(error.message); document.querySelector('#account').innerHTML = viewerPass() }
 render()

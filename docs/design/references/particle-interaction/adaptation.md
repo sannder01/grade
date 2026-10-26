@@ -1,0 +1,13 @@
+# Grade A.1 — GPU physics and shared input
+
+The existing Grade sculpture, SVG geometry, camera composition and reflection are retained. The new simulation stores positions and velocities in two pairs of float render targets, using the official `GPUComputationRenderer` from the installed Three.js 0.186.1. It uses the existing WebGL renderer and context. The CSS3D gallery exports remain in the same lazy vendor bundle.
+
+`public/particle-simulation.js` adapts the position/velocity dependencies and ping-pong setup from the official Three.js `webgl_gpgpu_birds` example. Grade supplies its own spring targets, bounded cursor forces, slow flow, screen-space history and damping. The bird flocking shaders, media and UI are not used. The upstream MIT notice is retained in `public/assets/three.LICENSE.txt` and the source references here.
+
+`public/particle-input.js` adapts the Canvas2D trail-texture approach in kinmary's `Displacement.js`. The upstream README explicitly declares MIT; no separate upstream LICENSE was found in the checked source. Attribution and the MIT permission notice are retained in the module. Grade replaces the glow image with a procedural brush, interpolates coalesced pointer segments, uses elapsed-time decay and adds cleanup. The source's debug canvas, photo, controls, GUI and old Three.js runtime are not used.
+
+The small RGB field carries strength and signed movement direction; it is not a CPU particle simulation. A separate transparent Canvas2D layer displays a fine silver trail across SPA routes without intercepting pointer input or text selection. The GPU core and spatial dust sample the same input. The reflection samples the very same position texture as the sculpture.
+
+The ray, model/inverse model and camera projection are refreshed every simulation step. Scroll updates the camera and assembly target without recreating the simulation. The input layer clears on hidden/reduced motion and ignores touch trails. Fully covered/offscreen/hidden scenes stop rendering. A partially covering desktop auth panel locks the camera while visible physics continues. Float framebuffer failure keeps the finished static SVG composition.
+
+Not included: WebGPU/TSL sources without a verified license, `particlesGL` with its separate commercial terms, any second WebGL engine or smooth-scroll replacement. Browser evidence and measurements belong to the result section in `docs/design/emotion-roadmap-v2.md`; this implementation description alone does not claim device performance.

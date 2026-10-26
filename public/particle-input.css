@@ -1,0 +1,4 @@
+/* A transparent, click-through silver input layer; native dialogs stay above it. */
+.particle-input-trail{position:fixed;z-index:70;inset:0;display:block;width:100%;height:100%;margin:0;padding:0;border:0;background:none;pointer-events:none!important;user-select:none;-webkit-user-select:none;touch-action:auto;contain:strict}
+.particle-input-trail[hidden]{display:none!important}
+@media(prefers-reduced-motion:reduce){.particle-input-trail{display:none!important}}

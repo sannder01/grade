@@ -1,4 +1,5 @@
 import {test,expect} from '@playwright/test'
+import {writeFile} from 'node:fs/promises'
 
 test.use({locale:'ru-RU',reducedMotion:'no-preference',launchOptions:{args:['--enable-unsafe-swiftshader','--use-angle=swiftshader']}})
 test.skip(({browserName})=>browserName!=='chromium','The real GPU regressions use deterministic Chromium software WebGL')
@@ -7,7 +8,7 @@ const hero=page=>page.locator('[data-hero-scene]')
 const canvas=page=>page.locator('[data-hero-canvas] .hero-scene-canvas')
 const ready=page=>expect(page.locator('main')).not.toHaveAttribute('aria-busy','true')
 
-async function fixtures(page,{language='ru',noWebGL=false,failedResources=false,earlyEntry=false}={}){
+async function fixtures(page,{language='ru',noWebGL=false,noFloat=false,failedResources=false,earlyEntry=false}={}){
   const errors=[],writes=[],unexpected=[]
   page.on('pageerror',error=>errors.push(error.message))
   await page.route('**/api/**',route=>{
@@ -36,23 +37,57 @@ async function fixtures(page,{language='ru',noWebGL=false,failedResources=false,
     await page.route('https://fonts.gstatic.com/**',route=>route.abort())
     await page.route('**/*.woff2',route=>route.abort())
   }
-  await page.addInitScript(({language,noWebGL,earlyEntry})=>{
+  await page.addInitScript(({language,noWebGL,noFloat,earlyEntry})=>{
     localStorage.setItem('grade:language',language)
-    const probe=window.__sceneProbe={allocations:[],frames:[],contexts:[],errors:[]}
+    const probe=window.__sceneProbe={allocations:[],frames:[],contexts:[],errors:[],simulations:[],samples:[]}
+    probe.pointerMoves=0
+    document.addEventListener('pointermove',()=>probe.pointerMoves++,{passive:true})
     const native=HTMLCanvasElement.prototype.getContext
     HTMLCanvasElement.prototype.getContext=function(type,...args){
       if(!/^webgl2?$|^experimental-webgl$/.test(type))return native.call(this,type,...args)
       const context=noWebGL?null:native.call(this,type,...args)
+      if(context&&noFloat){const get=context.getExtension.bind(context);context.getExtension=name=>name==='EXT_color_buffer_float'?null:get(name)}
       probe.allocations.push({type,success:Boolean(context)})
       return context
+    }
+    probe.readSimulation=()=>{
+      const s=probe.lastSimulation,entry=probe.simulations.find(entry=>entry.id===s.id)
+      const length=s.width*s.height*4
+      entry.positions||=new Float32Array(length);entry.velocities||=new Float32Array(length)
+      s.renderer.readRenderTargetPixels(s.positionTarget,0,0,s.width,s.height,entry.positions)
+      s.renderer.readRenderTargetPixels(s.velocityTarget,0,0,s.width,s.height,entry.velocities)
+      const p=entry.positions,v=entry.velocities,home=s.homeTexture.image.data
+      const summarize=(start,count,near=false)=>{
+        let n=0,error=0,zError=0,energy=0,cx=0,cy=0,cz=0,finite=true
+        const samples=[],bounds={left:Infinity,right:-Infinity,top:Infinity,bottom:-Infinity}
+        const m=s.matrixWorld,q=s.viewProjection,rect=probe.lastCanvas.getBoundingClientRect(),corridor=probe.corridor
+        for(let i=start;i<start+count;i++){
+          const k=i*4,x=home[k],y=home[k+1],z=home[k+2]
+          if(near||i%23===0){
+            const wx=m[0]*x+m[4]*y+m[8]*z+m[12],wy=m[1]*x+m[5]*y+m[9]*z+m[13],wz=m[2]*x+m[6]*y+m[10]*z+m[14]
+            const w=q[3]*wx+q[7]*wy+q[11]*wz+q[15]
+            const sx=rect.left+((q[0]*wx+q[4]*wy+q[8]*wz+q[12])/w*.5+.5)*rect.width
+            const sy=rect.top+(1-((q[1]*wx+q[5]*wy+q[9]*wz+q[13])/w*.5+.5))*rect.height
+            bounds.left=Math.min(bounds.left,sx);bounds.right=Math.max(bounds.right,sx);bounds.top=Math.min(bounds.top,sy);bounds.bottom=Math.max(bounds.bottom,sy)
+            if(near&&corridor&&(sx<corridor.left||sx>corridor.right||Math.abs(sy-corridor.y)>corridor.radius))continue
+          }
+          n++;cx+=p[k];cy+=p[k+1];cz+=p[k+2]
+          error+=(p[k]-x)**2+(p[k+1]-y)**2+(p[k+2]-z)**2;zError+=(p[k+2]-z)**2
+          energy+=v[k]**2+v[k+1]**2+v[k+2]**2
+          finite&&=Number.isFinite(p[k]+p[k+1]+p[k+2]+v[k]+v[k+1]+v[k+2])
+          if((i-start)%Math.max(1,Math.floor(count/384))===0)samples.push(p[k],p[k+1],p[k+2])
+        }
+        return {count:n,rms:Math.sqrt(error/Math.max(1,n)),zRms:Math.sqrt(zError/Math.max(1,n)),energy:energy/Math.max(1,n),center:[cx/n,cy/n,cz/n],finite,samples,bounds}
+      }
+      return {id:s.id,step:s.step,time:s.time,core:summarize(0,s.coreCount),near:summarize(0,s.coreCount,true),dust:summarize(s.coreCount,s.dustCount),ray:s.ray,pointerActive:s.pointerActive,pointerSpeed:s.pointerSpeed,inputRevision:s.inputRevision,
+        positionPool:entry.positionPool.length,velocityPool:entry.velocityPool.length}
     }
     document.addEventListener('grade:hero-scene-frame',event=>{
       const {gl,canvas,frame,assembly,progress,camera,dispersion,pointerStrength}=event.detail
       let entry=probe.contexts.find(entry=>entry.canvas===canvas)
       if(!entry){entry={root:event.target,canvas,gl,id:probe.contexts.length+1};probe.contexts.push(entry)}
       let pixels=null
-      // The renderer can sleep on the first fully assembled frame. Always
-      // sample that milestone even when its number is not a multiple of four.
+      // Include the first fully assembled frame independently of periodic sampling.
       if(frame<3||frame%4===0||(assembly===1&&!entry.finalPixels)){
         try{
           const width=Math.min(256,gl.drawingBufferWidth),height=Math.min(256,gl.drawingBufferHeight)
@@ -72,7 +107,20 @@ async function fixtures(page,{language='ru',noWebGL=false,failedResources=false,
           if(assembly===1)entry.finalPixels=true
         }catch(error){probe.errors.push(error.message)}
       }
-      probe.frames.push({context:entry.id,frame,assembly,progress,camera,dispersion,pointerStrength,pixels,at:performance.now()})
+      const simulation=event.detail.simulation
+      if(simulation){
+        probe.lastSimulation=simulation;probe.lastCanvas=canvas
+        let current=probe.simulations.find(item=>item.id===simulation.id)
+        if(!current){current={id:simulation.id,positionPool:[],velocityPool:[]};probe.simulations.push(current)}
+        if(!current.positionPool.includes(simulation.positionTarget))current.positionPool.push(simulation.positionTarget)
+        if(!current.velocityPool.includes(simulation.velocityTarget))current.velocityPool.push(simulation.velocityTarget)
+        if(probe.monitor&&simulation.time-(probe.lastSampleTime||0)>.1){
+          try{probe.samples.push(probe.readSimulation());probe.lastSampleTime=simulation.time}catch(error){probe.errors.push(error.message)}
+        }
+      }
+      probe.frames.push({context:entry.id,frame,assembly,progress,camera,dispersion,pointerStrength,pixels,at:performance.now(),cameraFrozen:event.detail.cameraFrozen,
+        reflectionMatches:event.detail.positionTexture===event.detail.reflectionTexture,
+        simulation:simulation?{id:simulation.id,step:simulation.step,time:simulation.time,ray:simulation.ray,inputRevision:simulation.inputRevision}:null})
       if(probe.frames.length>1400)probe.frames.splice(0,400)
       if(earlyEntry&&!probe.entry){
         probe.entry={assembly}
@@ -87,7 +135,7 @@ async function fixtures(page,{language='ru',noWebGL=false,failedResources=false,
         })
       }
     })
-  },{language,noWebGL,earlyEntry})
+  },{language,noWebGL,noFloat,earlyEntry})
   return {errors,writes,unexpected}
 }
 async function open(page){
@@ -101,12 +149,22 @@ async function gpuReady(page){
   await expect(canvas(page)).toHaveCount(1)
   await expect.poll(()=>page.evaluate(()=>window.__sceneProbe.frames.length)).toBeGreaterThan(0)
 }
-async function idle(page){await expect(hero(page)).toHaveAttribute('data-hero-scene-state','idle',{timeout:20000})}
+async function assembled(page){
+  await expect(hero(page)).toHaveAttribute('data-hero-scene-assembly','1.0000',{timeout:20000})
+  await expect(hero(page)).toHaveAttribute('data-hero-scene-state','running')
+  await expect.poll(()=>page.evaluate(()=>{
+    const frame=window.__sceneProbe.frames.at(-1),target=Number(document.querySelector('[data-hero-scene]').dataset.heroSceneProgress)
+    return Boolean(frame&&(frame.cameraFrozen||Math.abs(frame.progress-target)<.005))
+  })).toBe(true)
+}
+const physical=page=>page.evaluate(()=>window.__sceneProbe.readSimulation())
+async function advance(page,seconds){const time=await page.evaluate(()=>window.__sceneProbe.lastSimulation.time);await expect.poll(()=>page.evaluate(()=>window.__sceneProbe.lastSimulation.time),{timeout:20000}).toBeGreaterThan(time+seconds)}
+function rmsDifference(a,b){return Math.sqrt(a.reduce((sum,value,index)=>sum+(value-b[index])**2,0)/a.length)}
 async function framesStable(page){
   return hero(page).evaluate(async root=>{
     const initial=Number(root.dataset.heroSceneFrames),start=performance.now();let samples=0
-    while(performance.now()-start<180){await new Promise(requestAnimationFrame);samples++;if(Number(root.dataset.heroSceneFrames)!==initial)return false}
-    return samples>2
+    while((performance.now()-start<180||samples<3)&&performance.now()-start<3000){await new Promise(requestAnimationFrame);samples++;if(Number(root.dataset.heroSceneFrames)!==initial)return false}
+    return samples>=3
   })
 }
 async function scrollProgress(page,progress){
@@ -185,7 +243,18 @@ test('real particle pixels assemble, react to the pointer and follow a reversibl
   await expect(hero(page)).toHaveAttribute('data-hero-scene-mode','desktop')
   expect(Number(await hero(page).getAttribute('data-hero-scene-depth'))).toBeGreaterThan(.8)
   expect(Number(await hero(page).getAttribute('data-hero-scene-particles'))).toBeGreaterThanOrEqual(20000)
-  await idle(page)
+  await assembled(page)
+  await advance(page,1.2)
+  const quiet=await physical(page)
+  await advance(page,1.2)
+  const alive=await physical(page)
+  expect(alive.id).toBe(quiet.id)
+  expect(rmsDifference(alive.core.samples,quiet.core.samples)).toBeGreaterThan(.001)
+  expect(rmsDifference(alive.dust.samples,quiet.dust.samples)).toBeGreaterThan(.001)
+  expect(alive.core.energy).toBeGreaterThan(.00001)
+  expect(alive.dust.energy).toBeGreaterThan(.00001)
+  expect(alive.core.rms).toBeLessThan(.5)
+  expect(alive.core.finite&&alive.dust.finite).toBe(true)
   let frames=await page.evaluate(()=>window.__sceneProbe.frames)
   expect(frames.some(frame=>frame.assembly>.05&&frame.assembly<.95&&frame.pixels)).toBe(true)
   const gathered=frames.filter(frame=>frame.assembly===1&&frame.pixels).at(-1)
@@ -199,15 +268,15 @@ test('real particle pixels assemble, react to the pointer and follow a reversibl
   await expect.poll(()=>page.evaluate(index=>window.__sceneProbe.frames.slice(index).some(frame=>frame.pointerStrength>.05&&frame.pixels),beforePointer)).toBe(true)
   frames=await page.evaluate(()=>window.__sceneProbe.frames)
   expect(frames.slice(beforePointer).some(frame=>frame.pixels&&frame.pixels.hash!==gathered.pixels.hash)).toBe(true)
-  await page.mouse.move(0,0);await idle(page)
-  await scrollProgress(page,.68);await idle(page)
+  await page.mouse.move(0,0);await assembled(page)
+  await scrollProgress(page,.68);await assembled(page)
   const forward=await page.evaluate(()=>window.__sceneProbe.frames.filter(frame=>frame.pixels).at(-1))
   expect(forward.progress).toBeGreaterThan(.65)
   expect(forward.camera.z).toBeLessThan(gathered.camera.z-1)
   expect(forward.camera.x).toBeGreaterThan(gathered.camera.x+.7)
   expect(forward.dispersion).toBeGreaterThan(.5)
   expect(forward.pixels.hash).not.toBe(gathered.pixels.hash)
-  await scrollProgress(page,0);await idle(page)
+  await scrollProgress(page,0);await assembled(page)
   const returned=await page.evaluate(()=>window.__sceneProbe.frames.at(-1))
   expect(returned.progress).toBeLessThan(.01)
   expect(returned.camera.z).toBeCloseTo(gathered.camera.z,1)
@@ -221,14 +290,14 @@ test('a touch phone renders a real lower-density volume, resizes correctly and p
   const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:3,reducedMotion:'no-preference',locale:'ru-RU'})
   try{
     const page=await context.newPage(),audit=await fixtures(page)
-    await open(page);await gpuReady(page);await idle(page)
+    await open(page);await gpuReady(page);await assembled(page)
     await expect(hero(page)).toHaveAttribute('data-hero-scene-mode','mobile')
     expect(Number(await hero(page).getAttribute('data-hero-scene-particles'))).toBeGreaterThanOrEqual(8000)
     expect(Number(await hero(page).getAttribute('data-hero-scene-particles'))).toBeLessThan(20000)
     expect(Number(await hero(page).getAttribute('data-hero-scene-depth'))).toBeGreaterThan(.8)
     expect(await page.evaluate(()=>navigator.maxTouchPoints)).toBeGreaterThan(0)
     expect(await page.evaluate(()=>window.__sceneProbe.frames.some(frame=>frame.pixels?.lit>10))).toBe(true)
-    await page.setViewportSize({width:430,height:932});await idle(page)
+    await page.setViewportSize({width:430,height:932});await assembled(page)
     const bounds=await canvas(page).evaluate(node=>({width:node.width,height:node.height,css:node.getBoundingClientRect().toJSON()}))
     expect(bounds.width/bounds.css.width).toBeLessThanOrEqual(1.251)
     expect(Math.abs(bounds.width/bounds.height-bounds.css.width/bounds.css.height)).toBeLessThan(.01)
@@ -244,22 +313,22 @@ test('a touch phone renders a real lower-density volume, resizes correctly and p
   }finally{await context.close()}
 })
 
-test('the renderer sleeps when settled and pauses offscreen, hidden and throughout menu, search and dialog transitions',async({page})=>{
+test('visible physics stays alive, opaque scenes pause it and a partial auth panel freezes only the camera',async({page})=>{
   const audit=await fixtures(page)
-  await open(page);await gpuReady(page);await idle(page)
-  expect(await framesStable(page)).toBe(true)
+  await open(page);await gpuReady(page);await assembled(page)
+  expect(await framesStable(page)).toBe(false)
   await hero(page).evaluate(root=>scrollTo({top:root.getBoundingClientRect().top+scrollY+root.offsetHeight+100,behavior:'instant'}))
   await expect(hero(page)).toHaveAttribute('data-hero-scene-state','paused')
   await expect(hero(page)).toHaveAttribute('data-hero-scene-reason','offscreen')
   expect(await framesStable(page)).toBe(true)
-  await page.evaluate(()=>scrollTo({top:0,behavior:'instant'}));await idle(page)
+  await page.evaluate(()=>scrollTo({top:0,behavior:'instant'}));await assembled(page)
   // Headless tabs stay visible even when another page is brought forward.
   // Change the scheduler's visibility input while real browser RAF keeps ticking.
   await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>'hidden'});document.dispatchEvent(new Event('visibilitychange'))})
   await expect(hero(page)).toHaveAttribute('data-hero-scene-reason','hidden')
   expect(await framesStable(page)).toBe(true)
-  await page.evaluate(()=>{delete document.hidden;delete document.visibilityState;document.dispatchEvent(new Event('visibilitychange'))});await idle(page)
-  for(const [trigger,panel] of [['.menu-trigger','#section-menu'],['.search-trigger','#search-tray'],['.login-button','#modal']]){
+  await page.evaluate(()=>{delete document.hidden;delete document.visibilityState;document.dispatchEvent(new Event('visibilitychange'))});await assembled(page)
+  for(const [trigger,panel] of [['.menu-trigger','#section-menu'],['.search-trigger','#search-tray']]){
     await page.locator(trigger).click()
     await expect(hero(page)).toHaveAttribute('data-hero-scene-state','paused')
     await expect(hero(page)).toHaveAttribute('data-hero-scene-reason','scene')
@@ -271,19 +340,122 @@ test('the renderer sleeps when settled and pauses offscreen, hidden and througho
     const closing=await page.locator(panel).evaluate(async panel=>{
       const root=document.querySelector('[data-hero-scene]'),frames=root.dataset.heroSceneFrames,start=performance.now()
       panel.querySelector('[data-close-scene],.modal-close').click()
-      let samples=0,frozen=true
-      while(performance.now()-start<180){
-        await new Promise(requestAnimationFrame);samples++
+      let samples=0,frozen=true,intermediate=false,stillClosing=true
+      while((performance.now()-start<180||samples<3)&&performance.now()-start<3000){
+        await new Promise(requestAnimationFrame)
+        stillClosing=panel.matches('dialog')?panel.open:!panel.hidden
+        if(!stillClosing)break
+        samples++
+        const phase=parseFloat(getComputedStyle(panel).getPropertyValue('--scene-type-progress'))
+        intermediate||=phase>0&&phase<1
         frozen&&=root.dataset.heroSceneFrames===frames&&root.dataset.heroSceneState==='paused'
       }
-      return {samples,frozen,stillClosing:panel.matches('dialog')?panel.open:!panel.hidden}
+      return {samples,frozen,intermediate,measured:samples>=3||!stillClosing}
     })
-    expect(closing.samples).toBeGreaterThan(2)
+    expect(closing.samples).toBeGreaterThan(0)
     expect(closing.frozen).toBe(true)
-    expect(closing.stillClosing).toBe(true)
+    expect(closing.intermediate).toBe(true)
+    expect(closing.measured).toBe(true)
     await expect(page.locator(panel)).toBeHidden()
-    await idle(page)
+    await assembled(page)
   }
+  await page.locator('.login-button').click()
+  await expect(hero(page)).toHaveAttribute('data-hero-scene-camera','locked')
+  const beforeAuth=await physical(page),camera=await page.evaluate(()=>window.__sceneProbe.frames.at(-1).camera)
+  await scrollProgress(page,.35);await advance(page,.5)
+  const behindAuth=await physical(page)
+  expect(behindAuth.step).toBeGreaterThan(beforeAuth.step)
+  expect(rmsDifference(behindAuth.core.samples,beforeAuth.core.samples)).toBeGreaterThan(.001)
+  expect(await page.evaluate(()=>window.__sceneProbe.frames.at(-1).camera)).toEqual(camera)
+  await page.keyboard.press('Escape');await expect(page.locator('#modal')).toBeHidden();await assembled(page)
+  clean(audit)
+})
+
+test('GPU velocities produce stronger fast repulsion, depth, inertia and a damped return to the real home shape',async({page},testInfo)=>{
+  const audit=await fixtures(page)
+  await open(page);await gpuReady(page);await assembled(page);await advance(page,1)
+  const initial=await physical(page),bounds=initial.core.bounds
+  const path={left:bounds.left-25,right:bounds.right+25,y:(bounds.top+bounds.bottom)/2,radius:(bounds.bottom-bounds.top)*.13}
+  await page.evaluate(path=>{window.__sceneProbe.corridor=path},path)
+  const baseline=await physical(page)
+  expect(baseline.near.count).toBeGreaterThan(20)
+  async function sweep(duration){
+    await page.mouse.move(path.left,path.y)
+    await advance(page,.8)
+    await page.evaluate(()=>{const probe=window.__sceneProbe;probe.samples=[];probe.monitor=true;probe.lastSampleTime=0})
+    const segments=duration<200?1:12
+    for(let index=1;index<=segments;index++){
+      await page.mouse.move(path.left+(path.right-path.left)*index/segments,path.y)
+      await page.waitForTimeout(duration/segments)
+    }
+    await advance(page,.45)
+    await page.evaluate(()=>{window.__sceneProbe.monitor=false})
+    return page.evaluate(()=>window.__sceneProbe.samples.map(sample=>({energy:sample.near.energy,rms:sample.near.rms,zRms:sample.near.zRms,speed:sample.pointerSpeed,time:sample.time})))
+  }
+  const slow=await sweep(1000)
+  await page.mouse.move(0,0);await advance(page,2)
+  const fast=await sweep(80)
+  const maximum=(samples,key)=>Math.max(...samples.map(sample=>sample[key]))
+  const peak={slowEnergy:maximum(slow,'energy'),fastEnergy:maximum(fast,'energy'),slowSpeed:maximum(slow,'speed'),fastSpeed:maximum(fast,'speed'),fastDepth:maximum(fast,'zRms'),baselineDepth:baseline.near.zRms}
+  await testInfo.attach('real-gpu-response',{body:JSON.stringify(peak),contentType:'application/json'})
+  expect(peak.fastSpeed).toBeGreaterThan(peak.slowSpeed+.1)
+  expect(peak.fastEnergy).toBeGreaterThan(peak.slowEnergy*1.05)
+  expect(peak.fastDepth).toBeGreaterThan(baseline.near.zRms+.005)
+  const disturbed=await physical(page)
+  await page.mouse.move(0,0);await advance(page,.2)
+  const inertia=await physical(page)
+  expect(inertia.near.energy).toBeGreaterThan(baseline.near.energy*1.1)
+  expect(rmsDifference(inertia.core.samples,disturbed.core.samples)).toBeGreaterThan(.001)
+  await advance(page,2)
+  const returned=await physical(page)
+  const metrics={...peak,baselineEnergy:baseline.near.energy,baselineError:baseline.near.rms,disturbedError:disturbed.near.rms,
+    inertiaEnergy:inertia.near.energy,returnEnergy:returned.near.energy,returnError:returned.near.rms,
+    simulationId:returned.id,simulationTime:returned.time,coreFinite:returned.core.finite,dustFinite:returned.dust.finite}
+  const evidence=testInfo.outputPath('real-gpu-response.json')
+  await writeFile(evidence,JSON.stringify(metrics,null,2))
+  await testInfo.attach('real-gpu-response-complete',{path:evidence,contentType:'application/json'})
+  expect(returned.near.rms).toBeLessThan(Math.max(...fast.map(sample=>sample.rms))*.85)
+  expect(returned.near.energy).toBeLessThan(peak.fastEnergy*.5)
+  expect(returned.core.finite&&returned.dust.finite).toBe(true)
+  expect(returned.id).toBe(initial.id)
+  clean(audit)
+})
+
+test('a stationary screen pointer keeps its ray current while scrolling the same GPU position and velocity targets',async({page})=>{
+  const audit=await fixtures(page)
+  await open(page);await gpuReady(page);await assembled(page);await advance(page,.5)
+  const baseline=await physical(page),bounds=baseline.core.bounds
+  await page.mouse.move((bounds.left+bounds.right)/2,(bounds.top+bounds.bottom)/2)
+  await advance(page,.3)
+  const before=await physical(page),moves=await page.evaluate(()=>window.__sceneProbe.pointerMoves)
+  await page.evaluate(()=>{const s=window.__sceneProbe.lastSimulation;window.__sceneProbe.anchor={renderer:s.renderer,targets:s.targets,home:s.homeTexture}})
+  await scrollProgress(page,.45);await assembled(page);await advance(page,.3)
+  const forward=await physical(page)
+  expect(await page.evaluate(()=>window.__sceneProbe.pointerMoves)).toBe(moves)
+  expect(forward.pointerActive).toBe(1)
+  expect(rmsDifference(forward.ray,before.ray)).toBeGreaterThan(.001)
+  expect(forward.step).toBeGreaterThan(before.step)
+  expect(forward.id).toBe(before.id)
+  expect(rmsDifference(forward.core.samples,before.core.samples)).toBeGreaterThan(.01)
+  expect(await page.evaluate(()=>{const p=window.__sceneProbe,s=p.lastSimulation;return s.renderer===p.anchor.renderer&&s.targets===p.anchor.targets&&s.homeTexture===p.anchor.home})).toBe(true)
+  await scrollProgress(page,0);await assembled(page)
+  const back=await physical(page)
+  expect(back.id).toBe(before.id)
+  expect(back.step).toBeGreaterThan(forward.step)
+  expect(back.positionPool).toBe(2);expect(back.velocityPool).toBe(2)
+  expect(await page.evaluate(()=>window.__sceneProbe.frames.every(frame=>frame.reflectionMatches))).toBe(true)
+  clean(audit)
+})
+
+test('missing floating-point render targets leave an accessible static shape instead of a broken simulation',async({page})=>{
+  const audit=await fixtures(page,{noFloat:true})
+  await open(page)
+  await expect(hero(page)).toHaveAttribute('data-hero-scene-state','fallback')
+  await expect(hero(page)).toHaveAttribute('data-hero-scene-reason','simulation-fbo')
+  await expect(canvas(page)).toHaveCount(0)
+  await accessible(page)
+  await hero(page).locator('a[href="/catalog"]').click();await ready(page)
+  await expect(page.locator('#catalog-sort')).toBeVisible()
   clean(audit)
 })
 
@@ -303,7 +475,7 @@ test('navigation and Back release old GPU resources, restore one assembled scene
   await expect(canvas(page)).toHaveCount(0)
   expect(await page.evaluate(()=>window.__sceneProbe.contexts[0].root.dataset.heroSceneState)).toBe('disposed')
   await expect.poll(()=>page.evaluate(()=>window.__sceneProbe.contexts[0].gl.isContextLost())).toBe(true)
-  await page.goBack();await ready(page);await gpuReady(page);await idle(page)
+  await page.goBack();await ready(page);await gpuReady(page);await assembled(page)
   await expect(action).toBeFocused()
   await expect(hero(page)).toHaveAttribute('data-hero-scene-assembly','1.0000')
   const contexts=await page.evaluate(()=>window.__sceneProbe.contexts.map(entry=>({id:entry.id,connected:entry.canvas.isConnected,lost:entry.gl.isContextLost(),assembly:window.__sceneProbe.frames.filter(frame=>frame.context===entry.id).map(frame=>frame.assembly)})))
@@ -329,7 +501,7 @@ test('a live reduced-motion preference releases the active GPU and can resume wi
   await accessible(page)
   await expect.poll(()=>page.evaluate(()=>window.__sceneProbe.contexts.every(entry=>entry.gl.isContextLost()))).toBe(true)
   expect(await framesStable(page)).toBe(true)
-  await page.emulateMedia({reducedMotion:'no-preference'});await gpuReady(page);await idle(page)
+  await page.emulateMedia({reducedMotion:'no-preference'});await gpuReady(page);await assembled(page)
   await expect(hero(page)).toHaveAttribute('data-hero-scene-assembly','1.0000')
   expect(await page.evaluate(()=>{const probe=window.__sceneProbe,id=probe.contexts.at(-1).id;return probe.frames.filter(frame=>frame.context===id).every(frame=>frame.assembly===1)})).toBe(true)
   await expect(canvas(page)).toHaveCount(1)

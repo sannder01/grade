@@ -5,8 +5,10 @@
  * Copyright 2010-2026 three.js authors; MIT: /assets/three.LICENSE.txt.
  * Reference copies: docs/design/references/emotion-v2/three/.
  */
+import { createParticleSimulation } from './particle-simulation.js'
+import { getParticleInput } from './particle-input.js'
+
 const ASSEMBLY_MS = 2600
-const SETTLE_MS = 900
 let activeCleanup = null
 const clamp = value => Math.max(0,Math.min(1,value))
 const smooth = value => { const t = clamp(value); return t*t*(3-2*t) }
@@ -14,7 +16,7 @@ const smooth = value => { const t = clamp(value); return t*t*(3-2*t) }
 const vertexShader = /* glsl */ `
   attribute float size;
   attribute vec3 customColor;
-  attribute vec3 aScatter;
+  attribute vec2 aSimulationUV;
   attribute vec3 aNormal;
   attribute float aSeed;
   uniform float uAssembly;
@@ -22,8 +24,7 @@ const vertexShader = /* glsl */ `
   uniform float uTime;
   uniform float uPointScale;
   uniform float uPixelRatio;
-  uniform float uPointerStrength;
-  uniform vec2 uPointer;
+  uniform sampler2D uPositions;
   uniform float uReflection;
   varying vec3 vColor;
   varying float vAlpha;
@@ -31,13 +32,7 @@ const vertexShader = /* glsl */ `
   void main() {
     float phase = clamp((uAssembly-aSeed*.14)/.86,0.0,1.0);
     float gather = phase*phase*(3.0-2.0*phase);
-    vec3 p = mix(aScatter,position,gather);
-    vec3 drift = vec3(2.5+(aSeed-.25)*8.0,sin(aSeed*37.0)*2.8,(aSeed-.35)*7.0);
-    p += drift*uDispersion;
-    vec2 nearPointer = position.xy-uPointer;
-    float influence = exp(-dot(nearPointer,nearPointer)*1.7)*uPointerStrength*gather*(1.0-uDispersion);
-    p.xy += normalize(nearPointer+vec2(.001))*.24*influence;
-    p.z += .19*influence;
+    vec3 p = texture2D(uPositions,aSimulationUV).xyz;
     vec3 n = normalize(normalMatrix*aNormal);
     float key = pow(max(0.0,dot(n,normalize(vec3(-.55,.8,.75)))),1.4);
     float rim = pow(1.0-abs(n.z),2.0);
@@ -50,6 +45,22 @@ const vertexShader = /* glsl */ `
     // The official point example's perspective attenuation, bounded for fill rate.
     gl_PointSize = clamp(size*(uPointScale/-mvPosition.z)*uPixelRatio,1.0,5.0);
     gl_Position = projectionMatrix*mvPosition;
+  }
+`
+const dustVertexShader = /* glsl */ `
+  attribute vec2 aSimulationUV;
+  uniform sampler2D uPositions;
+  uniform float uPixelRatio;
+  uniform float uPointScale;
+  varying vec3 vColor;
+  varying float vAlpha;
+  varying float vDepth;
+  void main() {
+    vec3 p=texture2D(uPositions,aSimulationUV).xyz;
+    vec4 mvPosition=modelViewMatrix*vec4(p,1.0);
+    vColor=vec3(.56,.58,.62); vAlpha=.42; vDepth=-mvPosition.z;
+    gl_PointSize=clamp(.72*uPointScale/max(-mvPosition.z,.1)*uPixelRatio,1.0,2.8);
+    gl_Position=projectionMatrix*mvPosition;
   }
 `
 const fragmentShader = /* glsl */ `
@@ -96,8 +107,7 @@ export function mountHeroScene(root,{animate = true} = {}) {
   let initAbort, gpu = null, prepared = null, disposed = false, failed = false, loading = false
   let observer, resizeObserver, sceneObserver, raf = 0, epoch = 0
   let visible = true, lastTime = 0, frames = 0, elapsed = animate ? 0 : ASSEMBLY_MS
-  let progress = 0, displayedProgress = 0, lastInteraction = 0, pointerStrength = 0
-  const targetPointer = {x:100,y:100,strength:0}, currentPointer = {x:100,y:100}
+  let progress = 0, displayedProgress = 0
 
   function state(value,reason = '') {
     if (disposed && value!=='disposed') return
@@ -113,7 +123,10 @@ export function mountHeroScene(root,{animate = true} = {}) {
   function gate() {
     if (document.hidden) return 'hidden'
     if (!visible) return 'offscreen'
-    if (root.closest('[inert]') || document.querySelector('.scene-panel:not([hidden]),dialog[open]')) return 'scene'
+    if (document.querySelector('.scene-panel:not([hidden])')) return 'scene'
+    const dialogs=[...document.querySelectorAll('dialog[open]')]
+    const partial=dialogs.length && dialogs.every(dialog => dialog.classList.contains('track-auth') && dialog.getBoundingClientRect().width<innerWidth*.95)
+    if (dialogs.length && !partial || root.closest('[inert]') && !partial) return 'scene'
     return ''
   }
   function stop() { cancelAnimationFrame(raf); raf=0; lastTime=0 }
@@ -122,6 +135,7 @@ export function mountHeroScene(root,{animate = true} = {}) {
     if (!gpu) return
     const current=gpu; gpu=null
     current.canvas.removeEventListener('webglcontextlost',contextLost)
+    current.simulation?.dispose()
     for (const item of current.resources) item.dispose?.()
     current.scene?.clear()
     current.renderer?.dispose()
@@ -132,6 +146,7 @@ export function mountHeroScene(root,{animate = true} = {}) {
   function fallback(reason) {
     if (disposed) return
     failed=true; loading=false; epoch++; initAbort?.abort(); release()
+    life.abort(); observer?.disconnect(); resizeObserver?.disconnect(); sceneObserver?.disconnect()
     root.dataset.heroSceneMode='static'; state('fallback',reason)
   }
   function contextLost() { fallback('context-lost') }
@@ -160,7 +175,7 @@ export function mountHeroScene(root,{animate = true} = {}) {
     camera.aspect=bounds.width/bounds.height; camera.updateProjectionMatrix()
     uniforms.uPointScale.value=bounds.height*.034
     uniforms.uPixelRatio.value=renderer.getPixelRatio()
-    setProgress(); displayedProgress=progress
+    setProgress()
     wake()
   }
   function build(T,svgText) {
@@ -210,14 +225,17 @@ export function mountHeroScene(root,{animate = true} = {}) {
       sizes[i]=.62+rand()*.55; seeds[i]=rand()
     }
     sampleMaterial.dispose()
+    const dustCount=mobile.matches ? 450 : 1500, dustPositions=new Float32Array(dustCount*3)
+    for (let i=0;i<dustCount;i++) { dustPositions[i*3]=(rand()-.5)*30; dustPositions[i*3+1]=(rand()-.5)*17; dustPositions[i*3+2]=-2-rand()*21 }
+    gpu.simulation=createParticleSimulation(T,renderer,{positions,scatter,seeds,dustPositions,assembly:elapsed/ASSEMBLY_MS,input:getParticleInput()})
     const geometry=new T.BufferGeometry()
-    for (const [name,array,size] of [['position',positions,3],['aNormal',normals,3],['aScatter',scatter,3],['customColor',colors,3],['size',sizes,1],['aSeed',seeds,1]]) geometry.setAttribute(name,new T.BufferAttribute(array,size))
+    for (const [name,array,size] of [['position',positions,3],['aNormal',normals,3],['aSimulationUV',gpu.simulation.coreUV,2],['customColor',colors,3],['size',sizes,1],['aSeed',seeds,1]]) geometry.setAttribute(name,new T.BufferAttribute(array,size))
     geometry.boundingSphere=null; gpu.resources.add(geometry)
     const sprite=spriteTexture(T); gpu.resources.add(sprite)
     const uniforms={
       uAssembly:{value:elapsed/ASSEMBLY_MS},uDispersion:{value:0},uTime:{value:0},
-      uPointScale:{value:25},uPixelRatio:{value:1},uPointerStrength:{value:0},
-      uPointer:{value:new T.Vector2(100,100)},pointTexture:{value:sprite},uReflection:{value:0},
+      uPointScale:{value:25},uPixelRatio:{value:1},uPositions:gpu.simulation.texture,
+      pointTexture:{value:sprite},uReflection:{value:0},
     }
     gpu.uniforms=uniforms
     const material=new T.ShaderMaterial({uniforms,vertexShader,fragmentShader,transparent:true,depthWrite:false,depthTest:true,blending:T.AdditiveBlending})
@@ -226,11 +244,11 @@ export function mountHeroScene(root,{animate = true} = {}) {
     const mirrorMaterial=new T.ShaderMaterial({uniforms:{...uniforms,uReflection:{value:1}},vertexShader,fragmentShader,transparent:true,depthWrite:false,depthTest:true,blending:T.AdditiveBlending})
     gpu.resources.add(mirrorMaterial)
     const mirrorParticles=new T.Points(geometry,mirrorMaterial); mirrorParticles.frustumCulled=false; reflection.add(mirrorParticles)
-    const dustCount=mobile.matches ? 450 : 1500, dustPositions=new Float32Array(dustCount*3)
-    for (let i=0;i<dustCount;i++) { dustPositions[i*3]=(rand()-.5)*30; dustPositions[i*3+1]=(rand()-.5)*17; dustPositions[i*3+2]=-2-rand()*21 }
     const dustGeometry=new T.BufferGeometry(); dustGeometry.setAttribute('position',new T.BufferAttribute(dustPositions,3))
-    const dustMaterial=new T.PointsMaterial({color:0x8e9096,size:mobile.matches ? .022 : .018,map:sprite,transparent:true,opacity:.42,depthWrite:false,sizeAttenuation:true})
-    gpu.resources.add(dustGeometry); gpu.resources.add(dustMaterial); scene.add(new T.Points(dustGeometry,dustMaterial))
+    dustGeometry.setAttribute('aSimulationUV',new T.BufferAttribute(gpu.simulation.dustUV,2))
+    const dustMaterial=new T.ShaderMaterial({uniforms,vertexShader:dustVertexShader,fragmentShader,transparent:true,depthWrite:false,depthTest:true,blending:T.AdditiveBlending})
+    const dust=new T.Points(dustGeometry,dustMaterial); dust.frustumCulled=false
+    gpu.resources.add(dustGeometry); gpu.resources.add(dustMaterial); scene.add(dust)
     const groundGeometry=new T.PlaneGeometry(45,40), groundMaterial=new T.MeshBasicMaterial({color:0x101114,transparent:true,opacity:.45,depthWrite:false})
     const ground=new T.Mesh(groundGeometry,groundMaterial); ground.rotation.x=-Math.PI/2; ground.position.y=-2.45; scene.add(ground)
     gpu.resources.add(groundGeometry); gpu.resources.add(groundMaterial)
@@ -243,7 +261,6 @@ export function mountHeroScene(root,{animate = true} = {}) {
     root.dataset.heroSceneDepth=(surface.boundingBox.max.z-surface.boundingBox.min.z).toFixed(3)
     root.dataset.heroSceneMode=mobile.matches ? 'mobile' : 'desktop'
     host.append(canvas); resize()
-    lastInteraction=performance.now()
     wake()
   }
   async function ensureReady() {
@@ -261,7 +278,7 @@ export function mountHeroScene(root,{animate = true} = {}) {
       loading=false
       if (reduced.matches || gate()) { reconcile(); return }
       build(prepared.T,prepared.svg)
-    } catch (error) { if (!disposed && current===epoch) fallback(error.message==='webgl' ? 'webgl' : 'load') }
+    } catch (error) { if (!disposed && current===epoch) fallback(['webgl','simulation-fbo'].includes(error.message) ? error.message : 'load') }
   }
   function reconcile() {
     if (disposed || failed) return
@@ -275,33 +292,38 @@ export function mountHeroScene(root,{animate = true} = {}) {
     if (!gpu) void ensureReady(); else wake()
   }
   function draw(now,delta) {
-    const {T,camera,renderer,scene,sculpture,reflection,uniforms,canvas,gl}=gpu
+    const {camera,renderer,scene,sculpture,reflection,uniforms,canvas,gl,simulation}=gpu
+    const cameraFrozen=!!document.querySelector('dialog.track-auth[open]')
     const damp=1-Math.exp(-delta/130)
-    displayedProgress+=(progress-displayedProgress)*damp
-    if (Math.abs(progress-displayedProgress)<.0001) displayedProgress=progress
-    pointerStrength+=(targetPointer.strength-pointerStrength)*(1-Math.exp(-delta/90))
-    targetPointer.strength*=Math.exp(-delta/250)
-    currentPointer.x+=(targetPointer.x-currentPointer.x)*damp; currentPointer.y+=(targetPointer.y-currentPointer.y)*damp
+    if (!cameraFrozen) {
+      displayedProgress+=(progress-displayedProgress)*damp
+      if (Math.abs(progress-displayedProgress)<.0001) displayedProgress=progress
+    }
     const dispersion=smooth((displayedProgress-.18)/.82)
-    camera.position.set(displayedProgress*1.4,displayedProgress*.8,12-displayedProgress*2.4)
-    camera.lookAt(displayedProgress*.45,-displayedProgress*.25,0)
-    const viewHeight=2*Math.tan(camera.fov*Math.PI/360)*12
-    const scale=mobile.matches ? .66 : 1
-    sculpture.scale.setScalar(scale)
-    sculpture.position.set(viewHeight*camera.aspect*(mobile.matches ? .03 : .22),viewHeight*(mobile.matches ? .21 : .11),0)
-    sculpture.rotation.set(.2+displayedProgress*.22,-.42+displayedProgress*.72,-.1+displayedProgress*.1)
-    reflection.position.set(sculpture.position.x,-3.15,-.5)
-    reflection.scale.set(scale,-scale*.27,scale)
-    reflection.rotation.set(-sculpture.rotation.x,sculpture.rotation.y,-sculpture.rotation.z)
-    gpu.light.position.x=sculpture.position.x
+    if (!cameraFrozen || !gpu.poseInitialized) {
+      camera.position.set(displayedProgress*1.4,displayedProgress*.8,12-displayedProgress*2.4)
+      camera.lookAt(displayedProgress*.45,-displayedProgress*.25,0)
+      const viewHeight=2*Math.tan(camera.fov*Math.PI/360)*12
+      const scale=mobile.matches ? .66 : 1
+      sculpture.scale.setScalar(scale)
+      sculpture.position.set(viewHeight*camera.aspect*(mobile.matches ? .03 : .22),viewHeight*(mobile.matches ? .21 : .11),0)
+      sculpture.rotation.set(.2+displayedProgress*.22,-.42+displayedProgress*.72,-.1+displayedProgress*.1)
+      reflection.position.set(sculpture.position.x,-3.15,-.5)
+      reflection.scale.set(scale,-scale*.27,scale)
+      reflection.rotation.set(-sculpture.rotation.x,sculpture.rotation.y,-sculpture.rotation.z)
+      gpu.light.position.x=sculpture.position.x; gpu.poseInitialized=true
+    }
     uniforms.uAssembly.value=clamp(elapsed/ASSEMBLY_MS); uniforms.uDispersion.value=dispersion
-    uniforms.uTime.value=now/1000; uniforms.uPointer.value.set(currentPointer.x,currentPointer.y); uniforms.uPointerStrength.value=pointerStrength
+    simulation.update(now,delta,{camera,sculpture,bounds:host.getBoundingClientRect(),assembly:uniforms.uAssembly.value,dispersion})
+    const physical=simulation.snapshot()
+    uniforms.uTime.value=physical.time
     renderer.render(scene,camera)
     if (gl.isContextLost()) { fallback('context-lost'); return }
     frames++; root.dataset.heroSceneFrames=String(frames)
     root.dataset.heroSceneAssembly=uniforms.uAssembly.value.toFixed(4)
     root.dataset.heroSceneReady='true'
-    root.dispatchEvent(new CustomEvent('grade:hero-scene-frame',{bubbles:true,detail:{gl,canvas,frame:frames,assembly:uniforms.uAssembly.value,progress:displayedProgress,dispersion,pointerStrength,camera:{x:camera.position.x,y:camera.position.y,z:camera.position.z},particleCount:gpu.count}}))
+    root.dataset.heroSceneSimulation=String(physical.step); root.dataset.heroSceneCamera=cameraFrozen ? 'locked' : 'free'
+    root.dispatchEvent(new CustomEvent('grade:hero-scene-frame',{bubbles:true,detail:{gl,canvas,frame:frames,assembly:uniforms.uAssembly.value,progress:displayedProgress,dispersion,pointerStrength:physical.pointerActive,camera:{x:camera.position.x,y:camera.position.y,z:camera.position.z},cameraFrozen,particleCount:gpu.count,simulation:physical,positionTexture:uniforms.uPositions.value,reflectionTexture:gpu.reflection.children[0].material.uniforms.uPositions.value}}))
   }
   function tick(now) {
     raf=0
@@ -314,31 +336,14 @@ export function mountHeroScene(root,{animate = true} = {}) {
     // Shader compilation belongs to loading, not to the visible assembly.
     // Start its active clock at the first presented frame on slower devices.
     if (frames===1) lastTime=performance.now()
-    const moving=elapsed<ASSEMBLY_MS || Math.abs(progress-displayedProgress)>.0001 || pointerStrength>.002 || now-lastInteraction<SETTLE_MS
-    if (moving) { state('running'); raf=requestAnimationFrame(tick) }
-    else { lastTime=0; state('idle') }
+    state('running'); raf=requestAnimationFrame(tick)
   }
   function wake() {
     if (disposed || !gpu || raf || reduced.matches || gate()) return
     raf=requestAnimationFrame(tick)
   }
-  function pointerMove(event) {
-    if (!gpu || disposed || event.pointerType==='touch' || gate()) return
-    const {T,camera,sculpture}=gpu, bounds=host.getBoundingClientRect()
-    const point=new T.Vector3((event.clientX-bounds.left)/bounds.width*2-1,1-(event.clientY-bounds.top)/bounds.height*2,.5).unproject(camera)
-    const direction=point.sub(camera.position).normalize()
-    point.copy(camera.position).addScaledVector(direction,-camera.position.z/direction.z)
-    sculpture.updateMatrixWorld(); sculpture.worldToLocal(point)
-    if (pointerStrength<.01 && targetPointer.strength<.01) {
-      currentPointer.x=point.x; currentPointer.y=point.y
-    }
-    targetPointer.x=point.x; targetPointer.y=point.y; targetPointer.strength=1
-    lastInteraction=performance.now(); wake()
-  }
   const signal=life.signal, passive={passive:true,signal}
-  stage.addEventListener('pointermove',pointerMove,passive)
-  stage.addEventListener('pointerleave',() => { targetPointer.strength=0; lastInteraction=performance.now(); wake() },passive)
-  window.addEventListener('scroll',() => { setProgress(); lastInteraction=performance.now(); wake() },passive)
+  window.addEventListener('scroll',() => { setProgress(); wake() },passive)
   window.addEventListener('resize',resize,passive)
   reduced.addEventListener('change',reconcile,{signal})
   mobile.addEventListener('change',() => { resize(); reconcile() },{signal})

@@ -14,4 +14,4 @@ await writeFile('public/assets/hero-scene-vendor.js',bundle
   .replace(/^[\t ]+/gm,indent=>indent.replace(/\t/g,'  '))
   .replace(/[\t ]+$/gm,''))
 await writeFile('public/assets/three.LICENSE.txt',await readFile('node_modules/three/LICENSE','utf8'))
-console.log(`Built Three.js ${metadata.version}, SVGLoader, MeshSurfaceSampler and CSS3DRenderer`)
+console.log(`Built Three.js ${metadata.version}, SVGLoader, MeshSurfaceSampler, CSS3DRenderer and GPUComputationRenderer`)
