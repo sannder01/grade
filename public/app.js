@@ -3,7 +3,7 @@ import { t, html, language, setLanguage, applyShell } from './i18n.js'
 import { preparePhoto } from './photo.js'
 import { mountMotion, leavePage, syncNavigation, enableGestures, prepareNavigation } from './motion.js'
 import { mountTrailer, closeTrailer } from './trailer.js'
-import { loadCollections, collectionCards, collectionBySlug } from './collections.js'
+import { loadCollections, collectionCards, collectionGallery, collectionBySlug } from './collections.js'
 import { initializeHeader, closeHeaderPanels, openHeaderSearch, viewerPass } from './header-track.js'
 
 const main = document.querySelector('#main')
@@ -120,7 +120,8 @@ async function render({ resetScroll = false, restore = null, keepFilterFocus = f
         : [...main.querySelectorAll(filterControls)].find(node => node.dataset.filterKey === filterView.key)
       if (main.contains(target) && target.matches(filterControls) && !target.disabled && target.getClientRects().length) target.focus({preventScroll:true})
     }
-    mountMotion(main)
+    await mountMotion(main)
+    if (generation !== state.generation) return
     document.title = path.startsWith('/title/') && state.title ? `${state.title.name} — Grade` : t('Grade — оценки аниме, фильмов и сериалов')
     const search = params().get('q') || ''
     if (!document.querySelector('.track-header').classList.contains('search-is-open')) document.querySelector('#search').value = search
@@ -128,7 +129,7 @@ async function render({ resetScroll = false, restore = null, keepFilterFocus = f
     if (generation !== state.generation) return
     main.innerHTML = html`<section class="container error-page" role="alert"><h1>Не удалось открыть страницу</h1><p>${esc(error.message)}</p><button class="button primary" data-action="retry">Повторить</button></section>`
     if (resetScroll) window.scrollTo({ top:0,behavior:'instant' })
-    mountMotion(main)
+    await mountMotion(main)
   } finally {
     if (generation === state.generation) {
       main.inert = [...document.querySelectorAll('.scene-panel')].some(panel => !panel.hidden)
@@ -157,7 +158,8 @@ async function homePage() {
       </div>
     </section>
     <section class="container cinema-filmstrip" aria-label="${t('Из коллекции Grade')}"><h2 class="cinema-filmstrip-heading">Из коллекции Grade</h2><div class="cinema-filmstrip-list">${result.items.slice(0,4).map(item => `<a class="cinema-film-link" href="/title/${item.id}" aria-label="${esc(item.name)}">${poster(item)}<span class="cinema-film-caption"><strong>${esc(item.name)}</strong><small>${esc(item.year || '')}</small></span>${icon('arrow-up-right')}</a>`).join('')}</div></section>
-    <div class="container home-content"><section class="catalog-section" data-collections-scene><div class="section-heading"><div><p class="eyebrow">01 / СВЯЗИ МЕЖДУ ИСТОРИЯМИ</p><h2 data-collections-heading>Собрано по настроению</h2></div><a class="text-link" href="/collections">Все подборки ${icon('arrow-up-right')}</a></div>${collectionCards(collections)}</section>
+    ${collectionGallery(collections)}
+    <div class="container home-content">
     <section class="catalog-section library-section"><div class="section-heading"><div><p class="eyebrow">02 / ОТКРЫТЫЙ КАТАЛОГ</p><h2>С чего-то всё начинается</h2></div><a class="text-link" href="/catalog?view=grade">Весь каталог ${icon('arrow-up-right')}</a></div><div class="category-pills"><a class="active" href="/catalog?view=grade">Всё</a><a href="/catalog?kind=movie&view=grade">Фильмы</a><a href="/catalog?kind=anime&view=grade">Аниме</a><a href="/catalog?kind=series&view=grade">Сериалы</a><span class="catalog-footnote">Выбирайте по себе, а не по цифрам.</span></div>${cards(result.items.slice(0, 6))}</section>
     <section class="personal-section"><div class="section-heading"><div><p class="eyebrow">03 / ВАША ТОЧКА ЗРЕНИЯ</p><h2>У каждой коллекции — свой автор.</h2></div></div><div class="personal-grid"><a class="personal-collection" href="/me?tab=planned"><span class="index-label">[ 01 ]</span><h3>Ещё впереди</h3><p>Фильмы, до которых хочется добраться.</p><span class="text-link">В планах ${icon('arrow-up-right')}</span></a><a class="personal-collection" href="/me?tab=ratings"><span class="index-label">[ 02 ]</span><h3>На вашей шкале</h3><p>Любимое и всё, что оставило впечатление.</p><span class="text-link">Мои оценки ${icon('arrow-up-right')}</span></a><a class="personal-collection" href="/me?tab=reviews"><span class="index-label">[ 03 ]</span><h3>После титров</h3><p>Мысли, которые стоит сохранить в отзыве.</p><span class="text-link">Мои заметки ${icon('arrow-up-right')}</span></a></div><div class="archive-note"><span>Ваш вкус не обязан совпадать с чужим.</span><a href="/start" class="text-link">Вспомнить просмотренное ${icon('arrow')}</a></div></section>
   </div></div>`

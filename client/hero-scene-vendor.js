@@ -7,3 +7,4 @@ export {
 } from 'three'
 export { SVGLoader } from 'three/addons/loaders/SVGLoader.js'
 export { MeshSurfaceSampler } from 'three/addons/math/MeshSurfaceSampler.js'
+export { CSS3DRenderer, CSS3DObject } from 'three/addons/renderers/CSS3DRenderer.js'

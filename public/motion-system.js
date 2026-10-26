@@ -1,5 +1,4 @@
 import { gsap, Flip } from './assets/motion-vendor.js'
-import { mountCollectionsScroll } from './collections-scroll.js'
 
 /*
  * Collection reparenting adapts Codrops ContentLayoutTransition (slideshow.js).
@@ -37,7 +36,7 @@ let mounted = false, sameComposition = false, requestedRoute = '', lastRoute = '
 let pendingLink = null, shared = [], layer = null
 let filmTransition = false
 let disposeHero = null, heroSeen = false
-let disposeCollectionsScroll = null
+let disposeCollectionGallery = null, mountRevision = 0
 const collectionMemories = new Map()
 const visible = node => {
   const box = node?.getBoundingClientRect()
@@ -83,10 +82,31 @@ function mountOptionalHeroScene(hero, animate) {
     copy?.revert(); cleanup?.()
   }
 }
+function mountOptionalCollectionGallery(root) {
+  let active = true, cleanup = null, held = false, resolveReady
+  const ready = new Promise(resolve => { resolveReady = resolve })
+  import('./collection-gallery.js').then(({mountCollectionGallery}) => {
+    if (!active || !root.isConnected) return
+    cleanup = mountCollectionGallery(root)
+    cleanup.hold?.(held)
+    Promise.resolve(cleanup.ready).then(resolveReady)
+  }).catch(() => {
+    if (active && root.isConnected) {
+      root.dataset.galleryState = 'fallback'; root.dataset.galleryMode = 'static'
+    }
+    resolveReady()
+  })
+  const dispose = () => { active = false; cleanup?.(); resolveReady() }
+  dispose.hold = value => { held = !!value; cleanup?.hold?.(held) }
+  dispose.ready = ready
+  return dispose
+}
 function stopPageEffects() {
-  disposeCollectionsScroll?.(); disposeCollectionsScroll = null
+  mountRevision++
   // Keep the current 3D frame through the route's dissolve. mountMotion owns
   // disposal immediately after DOM replacement, before mounting another scene.
+  // The gallery is held too: restoring its grid here would collapse native
+  // scroll before the shared poster bridge has completed its measurements.
   observer?.disconnect(); observer = null
   pageTween?.kill(); pageTween = null
   layoutTween?.kill(); layoutTween = null
@@ -125,7 +145,7 @@ export async function leavePage(main) {
   neutralizePosterImages(main)
   // Freeze the actual visible cover positions; measure them before cleanup so
   // the shared posters start their Flip at precisely the clicked location.
-  disposeCollectionsScroll?.hold?.(true)
+  disposeCollectionGallery?.hold?.(true)
   const cards = [...main.querySelectorAll('.title-card')]
   cards.forEach(card => { card.dataset.flipId = `card-${card.dataset.title}` })
   cardState = sameComposition && !reducedMotion() ? Flip.getState(cards,{kill:false}) : null
@@ -206,9 +226,10 @@ function mountShared(main) {
   return transferred
 }
 
-export function mountMotion(main) {
+export async function mountMotion(main) {
+  const revision = ++mountRevision
   observer?.disconnect(); pageTween?.kill(); mounted = true
-  disposeCollectionsScroll?.(); disposeCollectionsScroll = null
+  disposeCollectionGallery?.(); disposeCollectionGallery = null
   disposeHero?.(); disposeHero = null
   const hero = main.querySelector('[data-hero-scene]')
   if (hero) {
@@ -221,10 +242,9 @@ export function mountMotion(main) {
   lastRoute = location.pathname; requestedRoute = location.pathname; pendingLink = null
   gsap.set(main,{opacity:1,clearProps:'transform'})
   neutralizePosterImages(main)
-  const collectionScene = main.querySelector('[data-collections-scene]')
+  const collectionScene = main.querySelector('[data-collection-gallery]')
   if (collectionScene) {
-    try { disposeCollectionsScroll = mountCollectionsScroll(collectionScene) }
-    catch { collectionScene.dataset.collectionsMotion = 'static' }
+    disposeCollectionGallery = mountOptionalCollectionGallery(collectionScene)
   }
   const cards = [...main.querySelectorAll('.title-card')]
   cards.forEach(card => { card.dataset.flipId = `card-${card.dataset.title}` })
@@ -235,15 +255,25 @@ export function mountMotion(main) {
   }
   // Set the native-scroll composition before Flip measures its destination,
   // then hold the parent covers until that transfer finishes.
-  disposeCollectionsScroll?.hold?.(true)
+  disposeCollectionGallery?.hold?.(true)
+  if (shared.length && disposeCollectionGallery) {
+    // Back restores native scroll before mounting. Wait for the same camera
+    // layout before Flip measures its destinations; never measure the fallback
+    // grid and then move the live posters into a different composition.
+    const incomingScene = disposeCollectionGallery
+    gsap.set(main,{opacity:0})
+    await incomingScene.ready
+    if (revision !== mountRevision || incomingScene !== disposeCollectionGallery || !collectionScene.isConnected) return
+    gsap.set(main,{opacity:1})
+  }
   const transferred = mountShared(main)
   if (transferred.length && layoutTween) {
-    const incomingScene = disposeCollectionsScroll
+    const incomingScene = disposeCollectionGallery
     layoutTween.eventCallback('onComplete',() => {
       layoutTween = null
-      if (incomingScene === disposeCollectionsScroll) incomingScene?.hold?.(false)
+      if (incomingScene === disposeCollectionGallery) incomingScene?.hold?.(false)
     })
-  } else disposeCollectionsScroll?.hold?.(false)
+  } else disposeCollectionGallery?.hold?.(false)
   const containsShared = node => transferred.some(image => node === image || node.contains(image))
   if (cardState && sameComposition) {
     layoutTween = Flip.from(cardState,{
@@ -271,7 +301,7 @@ export function mountMotion(main) {
       }
     },{threshold:.03})
     main.querySelectorAll('.title-card,.collection-card,.section-heading,.profile-review,.discussion-item,.onboard-card,.archive-note,.personal-collection').forEach(node => {
-      if (!containsShared(node) && !node.closest('[data-collections-scene]')) { node.dataset.reveal = 'pending'; observer.observe(node) }
+      if (!containsShared(node) && !node.closest('[data-collection-gallery]')) { node.dataset.reveal = 'pending'; observer.observe(node) }
     })
     if (transferred.length) pageContext.add(() => {
       const captions = [...new Set(transferred.map(node => node.closest('.title-card')?.querySelector('.card-info')).filter(Boolean))]
