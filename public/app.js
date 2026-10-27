@@ -14,17 +14,20 @@ const urlFor = (values) => `/catalog?${new URLSearchParams(values)}`
 const views = new Map()
 let entryKey = history.state?.gradeKey || crypto.randomUUID()
 history.replaceState({ ...history.state, gradeKey: entryKey }, '')
-function rememberView() {
+function rememberView(link = null) {
   const comment = document.querySelector('#comment-text')
-  views.set(entryKey, { scroll: scrollY, focus: document.activeElement?.id, focusHref: document.activeElement?.closest('a[href]')?.getAttribute('href'), comment: comment?.value })
+  // WebKit touch activation can blur an anchor before click reaches the router.
+  // Its explicit navigation target still owns the return focus.
+  const owner=link || document.activeElement
+  views.set(entryKey, { scroll: scrollY, focus: owner?.id, focusHref: owner?.closest('a[href]')?.getAttribute('href'), comment: comment?.value })
   if (views.size > 40) views.delete(views.keys().next().value)
 }
 function navigate(url, replace = false, link = null) {
-  rememberView()
+  rememberView(link)
+  prepareNavigation(link, url)
   closeHeaderPanels()
   const samePage = new URL(url, location.href).pathname === location.pathname
   const keepFilterFocus = samePage && (location.pathname === '/catalog' || /^\/collections\/[a-z-]+$/.test(location.pathname))
-  prepareNavigation(link, url)
   const previous = location.pathname + location.search
   entryKey = crypto.randomUUID()
   history[replace ? 'replaceState' : 'pushState']({ gradeKey: entryKey, gradeFrom: previous }, '', url)
@@ -95,7 +98,7 @@ async function render({ resetScroll = false, restore = null, keepFilterFocus = f
     else if (path === '/about') content = aboutPage()
     else content = empty(t('Страница не найдена'), t('Вернитесь в каталог'))
     if (generation !== state.generation) return
-    await leavePage(main)
+    await leavePage(main,{content})
     if (generation !== state.generation) return
     // Capture the current owner at commit: the user may Tab to another filter
     // or open search while awaiting the API. Never pull focus from that scene.
@@ -157,7 +160,7 @@ async function homePage() {
         <div class="hero-actions cinema-actions"><a href="/me" class="button primary">Моя коллекция ${icon('arrow-up-right')}</a><a href="/catalog" class="text-link">Найти своё ${icon('arrow')}</a></div>
       </div>
     </section>
-    <section class="container cinema-filmstrip" aria-label="${t('Из коллекции Grade')}"><h2 class="cinema-filmstrip-heading">Из коллекции Grade</h2><div class="cinema-filmstrip-list">${result.items.slice(0,4).map(item => `<a class="cinema-film-link" href="/title/${item.id}" aria-label="${esc(item.name)}">${poster(item)}<span class="cinema-film-caption"><strong>${esc(item.name)}</strong><small>${esc(item.year || '')}</small></span>${icon('arrow-up-right')}</a>`).join('')}</div></section>
+    <section class="container cinema-filmstrip" aria-label="${t('Из коллекции Grade')}"><h2 class="cinema-filmstrip-heading">Из коллекции Grade</h2><div class="cinema-filmstrip-list">${result.items.slice(0,4).map(item => `<a class="cinema-film-link" data-title-backdrop-url="${esc(item.backdrop || '')}" href="/title/${item.id}" aria-label="${esc(item.name)}">${poster(item)}<span class="cinema-film-caption"><strong>${esc(item.name)}</strong><small>${esc(item.year || '')}</small></span>${icon('arrow-up-right')}</a>`).join('')}</div></section>
     ${collectionGallery(collections)}
     <div class="container home-content">
     <section class="catalog-section library-section"><div class="section-heading"><div><p class="eyebrow">02 / ОТКРЫТЫЙ КАТАЛОГ</p><h2>С чего-то всё начинается</h2></div><a class="text-link" href="/catalog?view=grade">Весь каталог ${icon('arrow-up-right')}</a></div><div class="category-pills"><a class="active" href="/catalog?view=grade">Всё</a><a href="/catalog?kind=movie&view=grade">Фильмы</a><a href="/catalog?kind=anime&view=grade">Аниме</a><a href="/catalog?kind=series&view=grade">Сериалы</a><span class="catalog-footnote">Выбирайте по себе, а не по цифрам.</span></div>${cards(result.items.slice(0, 6))}</section>
@@ -260,15 +263,19 @@ async function titlePage(titleId) {
     api(`/api/titles/${titleId}`), api(`/api/titles/${titleId}/discussion?${new URLSearchParams({type,filter,page:current})}`),
   ])
   if (location.pathname === `/title/${titleId}`) state.title = item
-  return html`<div class="container title-page"><a href="${esc(history.state?.gradeFrom || '/catalog')}" class="back-link">${icon('arrow-left')} ${history.state?.gradeFrom ? t('Назад к коллекции') : t('В каталог')}</a><div class="title-layout"><aside class="title-sidebar"><div class="detail-poster">${poster(item,false)}</div><button class="button ${item.watched ? 'selected' : 'primary'} full" data-action="watch" data-id="${item.id}" data-watched="${item.watched ? 'true' : 'false'}">${icon(item.watched ? 'check' : 'plus')} ${item.watched ? t('Уже в просмотренном') : t('Смотрел')}</button><button class="button secondary full title-plan" data-action="plan" data-id="${item.id}" data-planned="${!!item.planned}" aria-pressed="${!!item.planned}">${icon('bookmark')} ${item.planned ? t('В планах') : t('В планы')}</button><p class="small muted center">Без оценки</p></aside>
-    <div class="title-info"><div class="title-kicker"><span class="kind-label">${kindName(item.kind)}</span><span>${item.year || ''}</span><span>${esc(item.runtime)}</span></div><h1>${esc(item.name)}</h1><p class="original-name">${esc(item.original_name)}</p><div class="genre-tags">${item.genres.map((genre) => `<a href="/catalog?q=${encodeURIComponent(genre)}">${esc(genre)}</a>`).join('')}</div>
+  const frame=item.backdrop || item.poster || ''
+  return html`<div class="title-film-scene" data-title-id="${esc(item.id)}" data-title-poster="${esc(item.poster || '')}" data-title-backdrop-url="${esc(frame)}"><section class="title-film-visual" data-title-visual>
+    ${frame ? `<img class="title-film-backdrop" data-title-backdrop src="${esc(frame)}" alt="" decoding="async" fetchpriority="high">` : ''}<div class="title-film-shade" aria-hidden="true"></div>
+    <div class="container title-film-heading title-info"><a href="${esc(history.state?.gradeFrom || '/catalog')}" class="back-link">${icon('arrow-left')} ${history.state?.gradeFrom ? t('Назад к коллекции') : t('В каталог')}</a><div class="title-film-caption"><p class="title-film-eyebrow">${kindName(item.kind)}<span aria-hidden="true">/</span>${item.year || 'GRADE CINEMA'}</p><h1 data-title-heading>${esc(item.name)}</h1><p class="title-film-original">${esc(item.original_name)}</p></div></div>
+    </section><div class="container title-page"><div class="title-layout"><aside class="title-sidebar"><div class="detail-poster">${poster(item,false)}</div><button class="button ${item.watched ? 'selected' : 'primary'} full" data-action="watch" data-id="${item.id}" data-watched="${item.watched ? 'true' : 'false'}">${icon(item.watched ? 'check' : 'plus')} ${item.watched ? t('Уже в просмотренном') : t('Смотрел')}</button><button class="button secondary full title-plan" data-action="plan" data-id="${item.id}" data-planned="${!!item.planned}" aria-pressed="${!!item.planned}">${icon('bookmark')} ${item.planned ? t('В планах') : t('В планы')}</button><p class="small muted center">Без оценки</p></aside>
+    <div class="title-info"><div class="title-kicker"><span>${esc(item.runtime)}</span></div><div class="genre-tags">${item.genres.map((genre) => `<a href="/catalog?q=${encodeURIComponent(genre)}">${esc(genre)}</a>`).join('')}</div>
     <div class="title-overview"><div class="overall-score"><strong>${item.average ?? '—'}</strong><div>${icon('star')}<span>${item.votes ? html`${item.votes} оценок Grade` : t('Пока нет оценок')}</span></div></div><div id="external-ratings" data-id="${item.id}" aria-label="Рейтинги других сервисов">${ratingSources(null)}</div></div>
     <p class="title-description">${esc(item.description || t('Описание пока не добавлено.'))}</p><section id="title-trailer" class="title-trailer" aria-label="${t('Трейлер')}" hidden><div class="trailer-glow" aria-hidden="true"></div><div class="trailer-view"><img class="trailer-art" alt="" decoding="async"><div class="trailer-shade"></div><span class="trailer-eyebrow">GRADE CINEMA ${icon('brand')} ${t('Трейлер')}</span><button type="button" class="trailer-play" aria-label="${t('Смотреть трейлер')}">${icon('play')}</button><div class="trailer-meta"><div><span class="trailer-meta-label">${t('Смотреть трейлер')}</span><strong class="trailer-film-name"></strong><small class="trailer-clip-name"></small></div><span class="trailer-meta-arrow" aria-hidden="true">${icon('arrow-up-right')}</span></div></div></section><section class="rating-section"><div><h2>Ваша оценка</h2><span>${item.my_score ? html`${item.my_score} из 10` : t('Без оценки')}</span></div><div class="rating-scale" role="group" aria-label="Оценка от 1 до 10">${Array.from({length:10},(_,i) => html`<button type="button" aria-label="Оценить на ${i+1}" aria-pressed="${item.my_score === i+1}" data-action="rate" data-id="${item.id}" data-score="${i+1}" class="${item.my_score === i+1 ? 'picked' : ''}">${i+1}</button>`).join('')}</div>${item.my_score ? html`<button class="text-button remove-rating" data-action="remove-rating" data-id="${item.id}">Удалить мою оценку</button>` : ''}</section>
     <section class="discussion"><div class="discussion-header"><h2>Обсуждение</h2><button class="button secondary" data-action="review" data-id="${item.id}">${icon('plus')} Написать отзыв</button></div>
     <div class="discussion-toolbar"><nav class="discussion-tabs" aria-label="Тип обсуждения"><a class="${type === 'reviews' ? 'active' : ''}" href="/title/${item.id}?type=reviews&filter=${filter}">Отзывы</a><a class="${type === 'comments' ? 'active' : ''}" href="/title/${item.id}?type=comments&filter=${filter}">Комментарии</a></nav><label class="spoiler-filter">${icon('eye')}<select id="spoiler-filter" aria-label="Фильтр спойлеров"><option value="all" ${filter === 'all' ? 'selected' : ''}>Спойлеры скрыты</option><option value="clean" ${filter === 'clean' ? 'selected' : ''}>Без спойлеров</option></select></label></div>
     ${type === 'comments' ? html`<form id="comment-form" class="comment-form"><label for="comment-text">${state.me ? t('Комментарий') : t('Войдите, чтобы оставить комментарий')}</label><div id="reply-context" hidden></div><textarea id="comment-text" name="content" required maxlength="2000" rows="3" placeholder="Ваш комментарий"></textarea><div><label class="checkbox-label"><input type="checkbox" name="spoiler"> Есть спойлеры</label><button class="button primary" type="submit">Отправить ${icon('arrow')}</button></div></form>` : ''}
     <div class="discussion-items">${discussion.items.length ? discussion.items.map((row) => discussionItem(row,type)).join('') : `<div class="discussion-empty">${icon('chat')}<h3>${filter === 'clean' ? t('Нет записей без спойлеров') : type === 'reviews' ? t('Нет отзывов') : t('Нет комментариев')}</h3></div>`}</div>
-    ${pager(discussion.page,discussion.pages,(page) => `/title/${item.id}?${new URLSearchParams({type,filter,page})}`)}</section></div></div></div>`
+    ${pager(discussion.page,discussion.pages,(page) => `/title/${item.id}?${new URLSearchParams({type,filter,page})}`)}</section></div></div></div></div>`
 }
 function discussionItem(row, type) {
   const date = new Intl.DateTimeFormat(language() === 'en' ? 'en-US' : 'ru-RU',{day:'numeric',month:'short',year:'numeric'}).format(new Date(row.created_at)).replace(/\.(?=\s|$)/g,'')

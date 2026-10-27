@@ -1,0 +1,36 @@
+/* Grade / C: a still cinema frame with a real, naturally flowing reading layer. */
+.title-film-scene{width:100%;background:#09090b;color:#f1eee6}
+.title-film-scene .title-film-visual{position:relative;display:grid;min-height:560px;min-height:clamp(560px,65svh,650px);overflow:hidden;background:radial-gradient(ellipse at 74% 28%,#26232c 0%,#141319 40%,#09090b 85%)}
+.title-film-scene .title-film-backdrop{position:absolute;z-index:0;inset:0;display:block;width:100%;height:100%;max-width:none;object-fit:cover;object-position:50% 38%;color:transparent;pointer-events:none;user-select:none;-webkit-user-select:none}
+.title-film-scene .title-film-backdrop:not([src]),.title-film-scene .title-film-backdrop[src='']{display:none}
+.title-film-scene .title-film-shade{position:absolute;z-index:1;inset:0;pointer-events:none;background:linear-gradient(0deg,#09090b 0%,#09090be8 12%,#09090b80 44%,#09090b14 78%,#09090b26 100%),linear-gradient(90deg,#09090baa 0%,#09090b40 44%,transparent 76%)}
+.title-film-scene .title-film-heading{position:relative;z-index:2;display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;min-width:0;min-height:inherit;padding-top:24px;padding-bottom:42px;gap:72px}
+.title-film-scene .title-film-heading>.back-link{display:inline-flex;align-items:center;align-self:flex-start;gap:11px;min-height:44px;max-width:100%;margin:0;padding:0;color:#e0dcd5;font:400 13px/1.6 'Manrope',sans-serif;transition:color .22s ease}
+.title-film-scene .title-film-heading>.back-link:hover,.title-film-scene .title-film-heading>.back-link:focus-visible{color:#fffaf1}
+.title-film-scene .title-film-heading>.back-link>.icon{width:17px;height:17px;flex:none}
+.title-film-scene .title-film-caption{width:100%;min-width:0;max-width:1190px}
+.title-film-scene .title-film-eyebrow{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:0 0 18px;font:400 12px/1.6 'Manrope',sans-serif;letter-spacing:.055em;color:#d0c9c4}
+.title-film-scene .title-film-caption>h1{max-width:1120px;margin:0;padding:0;font-family:'Cormorant Garamond','Times New Roman',serif;font-size:clamp(96px,7.8vw,112px);font-weight:300;font-style:normal;line-height:.98;letter-spacing:-.035em;color:#f4efe5;overflow-wrap:break-word;word-break:normal;text-wrap:balance}
+.title-film-scene .title-film-original{max-width:70ch;margin:18px 0 0;font:400 14px/1.65 'Manrope',sans-serif;letter-spacing:0;color:#b8b2b1;overflow-wrap:break-word}
+.title-film-scene>.title-page{padding-top:38px}
+@media(min-width:761px) and (max-width:1100px){
+ .title-film-scene .title-film-visual{min-height:550px;min-height:clamp(520px,65svh,620px)}
+ .title-film-scene .title-film-heading{gap:60px;padding-bottom:36px}
+ .title-film-scene .title-film-caption>h1{font-size:clamp(80px,9vw,100px);max-width:1000px}
+}
+@media(max-width:760px){
+ .title-film-scene .title-film-visual{min-height:440px;min-height:clamp(420px,52svh,480px)}
+ .title-film-scene .title-film-backdrop{object-position:57% 35%}
+ .title-film-scene .title-film-shade{background:linear-gradient(0deg,#09090b 0%,#09090be8 19%,#09090b69 57%,#09090b14 88%),linear-gradient(90deg,#09090b38,transparent 82%)}
+ .title-film-scene .title-film-heading{width:calc(100% - 40px);max-width:none;gap:42px;padding-top:16px;padding-bottom:28px}
+ .title-film-scene .title-film-heading>.back-link{font-size:12px;min-height:44px;gap:9px}
+ .title-film-scene .title-film-eyebrow{font-size:11px;line-height:1.7;gap:10px;margin-bottom:14px;letter-spacing:.04em}
+ .title-film-scene .title-film-caption>h1{max-width:100%;font-size:clamp(40px,12vw,52px);line-height:1;letter-spacing:-.03em}
+ .title-film-scene .title-film-original{max-width:100%;margin-top:14px;font-size:12px;line-height:1.7}
+ .title-film-scene>.title-page{padding-top:26px}
+}
+@media(max-width:359px){
+ .title-film-scene .title-film-heading{width:calc(100% - 36px);gap:34px}
+ .title-film-scene .title-film-caption>h1{font-size:40px}
+}
+@media(prefers-reduced-motion:reduce){.title-film-scene .title-film-heading>.back-link{transition:none}}

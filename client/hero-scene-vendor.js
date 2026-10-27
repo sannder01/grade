@@ -1,7 +1,7 @@
 export {
   WebGLRenderer, Scene, PerspectiveCamera, BufferGeometry, BufferAttribute,
   ShaderMaterial, Points, PointsMaterial, Mesh, MeshBasicMaterial, PlaneGeometry,
-  ExtrudeGeometry, Color, Vector2, Vector3, Vector4, Matrix4, Group, FogExp2, DataTexture, CanvasTexture,
+  ExtrudeGeometry, Color, Vector2, Vector3, Vector4, Matrix4, Group, FogExp2, Texture, DataTexture, CanvasTexture,
   RGBAFormat, UnsignedByteType, FloatType, HalfFloatType, NearestFilter, LinearFilter, AdditiveBlending, SRGBColorSpace,
   ACESFilmicToneMapping,
 } from 'three'

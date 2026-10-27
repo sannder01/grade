@@ -37,6 +37,8 @@ let pendingLink = null, shared = [], layer = null
 let filmTransition = false
 let disposeHero = null, heroSeen = false
 let disposeCollectionGallery = null, mountRevision = 0
+let titleModulePromise = null, titleSession = null, titleAbort = null, titleSource = null, titleBridge = null
+let navigationRevision = 0
 const collectionMemories = new Map()
 const visible = node => {
   const box = node?.getBoundingClientRect()
@@ -112,9 +114,53 @@ function stopPageEffects() {
   layoutTween?.kill(); layoutTween = null
   pageContext?.revert(); pageContext = null
 }
+function loadTitleModule() {
+  return titleModulePromise ||= import('./title-dissolve.js').catch(() => { titleModulePromise=null; return null })
+}
+async function readyTitleModule() {
+  let timer
+  try { return await Promise.race([loadTitleModule(),new Promise(resolve=>{timer=setTimeout(()=>resolve(null),750)})]) }
+  finally { clearTimeout(timer) }
+}
+function imageFrame(image) {
+  if (!image?.complete || !image.naturalWidth || !visible(image)) return null
+  const rect=image.getBoundingClientRect()
+  if (rect.bottom<=0 || rect.top>=innerHeight || rect.right<=0 || rect.left>=innerWidth) return null
+  const holder=image.closest('.poster-placeholder,.detail-poster') || image
+  return {url:image.currentSrc || image.src,rect:{left:rect.left,top:rect.top,width:rect.width,height:rect.height},
+    title:image.alt || '',radius:parseFloat(getComputedStyle(holder).borderRadius) || 0,
+    objectPosition:getComputedStyle(image).objectPosition,cinema:image.hasAttribute('data-title-backdrop')}
+}
+function filmDescriptor(root) {
+  const film=root.querySelector('.title-film-scene')
+  return film ? {id:film.dataset.titleId,poster:film.dataset.titlePoster,url:film.dataset.titleBackdropUrl,title:film.querySelector('h1')?.textContent || ''} : null
+}
+function primeTitleLink(target) {
+  if (reducedMotion()) return
+  const link=target?.closest?.('a[href^="/title/"]')
+  if (!link || new URL(link.href,location.href).pathname===lastRoute) return
+  const card=link.closest('.title-card,.cinema-film-link,.frame-result,.profile-review,.onboard-card')
+  const image=link.querySelector('img') || card?.querySelector('img')
+  const poster=image?.currentSrc || image?.src
+  const backdrop=card?.dataset.titleBackdropUrl
+  if (!poster) return
+  void loadTitleModule().then(module=>module?.primeTitleImages?.([
+    {url:poster,kind:'poster'},...(backdrop ? [{url:backdrop,kind:'backdrop'}] : []),
+  ]))
+}
+for (const event of ['pointerover','focusin','touchstart']) document.addEventListener(event,event=>primeTitleLink(event.target),{passive:true})
 export function prepareNavigation(link, route) {
+  navigationRevision++
+  titleAbort?.abort(); titleAbort=new AbortController()
+  titleSession?.cancel(); titleSession=null; titleBridge=null
+  const main=document.querySelector('#main')
+  const card=link?.closest('.title-card,.cinema-film-link,.frame-result,.profile-review,.onboard-card')
+  const image=main?.querySelector('[data-title-backdrop]') || link?.querySelector('img') || card?.querySelector('img')
+  titleSource=imageFrame(image)
+  primeTitleLink(link)
   requestedRoute = new URL(route,location.href).pathname
   pendingLink = link
+  if (!reducedMotion() && (titleRoute(requestedRoute) || titleRoute(lastRoute))) void loadTitleModule()
 }
 function sourcesFor(main) {
   const incomingSlug = collectionSlug(requestedRoute)
@@ -138,7 +184,8 @@ function sourcesFor(main) {
   return {posters:[]}
 }
 
-export async function leavePage(main) {
+export async function leavePage(main,{content} = {}) {
+  const navigation=navigationRevision, signal=titleAbort?.signal
   sameComposition = mounted && requestedRoute === lastRoute
   filmTransition = mounted && !sameComposition && (titleRoute(requestedRoute) || titleRoute(lastRoute))
   const outgoingOpacity = Number(getComputedStyle(main).opacity)
@@ -160,6 +207,30 @@ export async function leavePage(main) {
   main.querySelectorAll('[data-reveal]').forEach(node => node.removeAttribute('data-reveal'))
   if (!mounted || reducedMotion() || sameComposition) return
   if (filmTransition) {
+    // The optional shader owns a temporary fixed media field. Actual poster
+    // nodes and their geometry stay in the catalog; only collections reparent.
+    const outgoing=filmDescriptor(main)
+    const template=document.createElement('template'); template.innerHTML=content || ''
+    const incoming=filmDescriptor(template.content)
+    const module=titleSource && await readyTitleModule()
+    if (navigation!==navigationRevision || signal?.aborted) return
+    if (module && (incoming || outgoing)) {
+      const session=module.beginTitleDissolve({
+        from:titleSource,to:{url:incoming?.url || outgoing?.poster,title:incoming?.title || outgoing?.title},
+        direction:incoming ? 'in' : 'back',signal,
+        releaseGPU:() => { disposeHero?.(); disposeHero=null },
+      })
+      titleSession=session
+      const covered=await session.covered
+      if (navigation!==navigationRevision || signal?.aborted) { session.cancel(); return }
+      if (covered) {
+        titleBridge={session,id:incoming?.id || outgoing.id,direction:incoming ? 'in' : 'back'}
+        gsap.set(main,{opacity:1}); return
+      }
+      session.dispose()
+      if (titleSession===session) titleSession=null
+    }
+    if (reducedMotion()) { gsap.set(main,{opacity:1}); return }
     // Keep both scenes visible: the title never flies or vanishes into black.
     // Reuse the current opacity if a fast Back interrupts the entrance.
     gsap.set(main,{opacity:outgoingOpacity})
@@ -232,11 +303,15 @@ export async function mountMotion(main) {
   disposeCollectionGallery?.(); disposeCollectionGallery = null
   disposeHero?.(); disposeHero = null
   const hero = main.querySelector('[data-hero-scene]')
-  if (hero) {
+  const bridge=titleBridge
+  titleBridge=null
+  const startHero=() => {
+    if (!hero || revision!==mountRevision || !hero.isConnected) return
     const animate = !heroSeen
     heroSeen = true
     disposeHero = mountOptionalHeroScene(hero,animate)
   }
+  if (!bridge) startHero()
   const calmFilm = filmTransition || titleRoute(location.pathname)
   filmTransition = false
   lastRoute = location.pathname; requestedRoute = location.pathname; pendingLink = null
@@ -249,6 +324,9 @@ export async function mountMotion(main) {
   const cards = [...main.querySelectorAll('.title-card')]
   cards.forEach(card => { card.dataset.flipId = `card-${card.dataset.title}` })
   if (reducedMotion()) {
+    bridge?.session.dispose()
+    if (titleSession===bridge?.session) titleSession=null
+    if (bridge) startHero()
     clearLayer(); cardState = null
     main.querySelectorAll('[data-reveal]').forEach(node => node.removeAttribute('data-reveal'))
     syncNavigation(); return
@@ -283,9 +361,11 @@ export async function mountMotion(main) {
   } else {
     pageContext = gsap.context(() => {
       if (calmFilm) {
-        if (!hero) gsap.fromTo(main,{opacity:.55},{opacity:1,duration:timing.film,ease:'power2.out',clearProps:'opacity'})
-        const composition = main.querySelectorAll('.title-sidebar,.title-info,.page-heading,.profile-heading')
+        if (!hero && !bridge) gsap.fromTo(main,{opacity:.55},{opacity:1,duration:timing.film,ease:'power2.out',clearProps:'opacity'})
+        const composition = main.querySelectorAll('.title-sidebar,.title-info:not(.title-film-heading),.page-heading,.profile-heading')
         if (composition.length) gsap.from(composition,{y:8,duration:timing.film,ease:'power2.out',stagger:.025,clearProps:'transform'})
+        const caption=main.querySelector('.title-film-caption')
+        if (caption) gsap.from(caption,{clipPath:'inset(100% 0% 0% 0%)',y:12,opacity:.3,duration:.68,delay:bridge ? .1 : 0,ease:'power3.inOut',clearProps:'clipPath,transform,opacity'})
       } else {
         if (!transferred.length && !hero) gsap.fromTo(main,{opacity:.35},{opacity:1,duration:.5})
         const headings = [...main.querySelectorAll('.page-heading,.title-kicker,.title-info>h1,.original-name,.profile-heading')].filter(node => !containsShared(node))
@@ -310,6 +390,13 @@ export async function mountMotion(main) {
   }
   void decodeImages([...main.querySelectorAll('.hero .poster-placeholder,.collection-cover')])
   cardState = null; syncNavigation()
+  if (bridge) {
+    const target=bridge.direction==='in' ? main.querySelector('[data-title-backdrop]')
+      : main.querySelector(`[data-poster-id="${escaped(bridge.id)}"] img`)
+    await bridge.session.present({main,target})
+    if (titleSession===bridge.session) titleSession=null
+    if (revision===mountRevision) startHero()
+  }
 }
 
 // The fullscreen header owns its animation; preserve the router's event/API.
