@@ -380,6 +380,10 @@ test('profile privacy protects lists, counts and cross-collection metadata while
     await expect(page.locator('#modal')).not.toBeVisible()
     expect((await call(a.api,'/api/me')).visibility).toEqual({...visibility,watched:true})
     await page.getByRole('button',{name:'Выйти',exact:true}).first().click()
+    // A document navigation would abort the asynchronous sign-out request.
+    // Confirm the real guest session before testing this private profile.
+    await expect(page.locator('#account [data-action=login]')).toBeVisible()
+    expect((await call(context.request,'/api/me')).user).toBeNull()
     await page.goto(`/u/${a.username}?tab=ratings`)
     await expect(page.getByRole('heading',{name:'Раздел скрыт',exact:true})).toBeVisible()
     await expect(page.locator('.title-card')).toHaveCount(0)
