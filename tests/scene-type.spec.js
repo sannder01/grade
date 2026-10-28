@@ -1,4 +1,5 @@
 import {test,expect} from '@playwright/test'
+import {writeFile} from 'node:fs/promises'
 test.use({locale:'ru-RU',reducedMotion:'no-preference'})
 const ready=page=>expect(page.locator('main')).not.toHaveAttribute('aria-busy','true')
 async function start(page,width=1440){
@@ -136,24 +137,67 @@ test('language and auth replacement preserve headings, input focus and the retur
   await ready(page);expect(errors).toEqual([])
 })
 
-test('live reduced motion settles masks and subsequent opens remain immediately readable',async({page})=>{
-  const errors=await start(page,390)
-  await page.evaluate(async()=>{document.querySelector('.menu-trigger').click();await window.__sceneTypeProbe.until('#section-menu',value=>value.progress>.15&&value.progress<.7)})
-  await page.emulateMedia({reducedMotion:'reduce'});await finalType(page,'#section-menu')
-  await page.keyboard.press('Escape');await expect(page.locator('#section-menu')).toBeHidden()
-  for(const {root,trigger} of scenes){
-    const value=await page.locator(trigger).evaluate((button,root)=>{document.activeElement.blur();button.click();return window.__sceneTypeProbe.read(root)},root)
-    geometry(value);expect(value.progress).toBe(1);expect(value.masks.every(mask=>mask.clip===0&&mask.y===0)).toBe(true)
-    await page.keyboard.press('Escape');await expect(page.locator(root)).toBeHidden();await expect(page.locator(trigger)).toBeFocused()
+test('live reduced motion settles masks and subsequent opens remain immediately readable',async({page},testInfo)=>{
+  const cpuRate=Number(process.env.GRADE_SCENE_TYPE_TEST_CPU_RATE||1)
+  const cdp=cpuRate>1?await page.context().newCDPSession(page):null
+  try{
+    if(cdp)await cdp.send('Emulation.setCPUThrottlingRate',{rate:cpuRate})
+    const errors=await start(page,390)
+    await page.evaluate(async()=>{document.querySelector('.menu-trigger').click();await window.__sceneTypeProbe.until('#section-menu',value=>value.progress>.15&&value.progress<.7)})
+    await page.emulateMedia({reducedMotion:'reduce'});await finalType(page,'#section-menu')
+    await page.keyboard.press('Escape');await expect(page.locator('#section-menu')).toBeHidden()
+    for(const {root,trigger} of scenes){
+      const value=await page.locator(trigger).evaluate((button,root)=>{document.activeElement.blur();button.click();return window.__sceneTypeProbe.read(root)},root)
+      geometry(value);expect(value.progress).toBe(1);expect(value.masks.every(mask=>mask.clip===0&&mask.y===0)).toBe(true)
+      await page.keyboard.press('Escape');await expect(page.locator(root)).toBeHidden();await expect(page.locator(trigger)).toBeFocused()
+    }
+    await page.emulateMedia({reducedMotion:'no-preference'});await page.locator('.login-button').focus()
+    await page.evaluate(async()=>{document.querySelector('.login-button').click();await window.__sceneTypeProbe.until('#modal',value=>value.progress>.15&&value.progress<.7)})
+    await page.locator('#modal').evaluate(async dialog=>{
+      const {gsap}=await import('/assets/motion-vendor.js')
+      const probe=window.__sceneTypeProbe,media=matchMedia('(prefers-reduced-motion: reduce)')
+      let timer,frameTimer,frame,listener
+      const cleanup=()=>{clearTimeout(timer);clearTimeout(frameTimer);if(frame)cancelAnimationFrame(frame);media.removeEventListener('change',listener)}
+      const promise=new Promise((resolve,reject)=>{
+        listener=event=>{
+          if(!event.matches)return
+          clearTimeout(timer);media.removeEventListener('change',listener)
+          const delivered={time:performance.now(),matches:event.matches}
+          frameTimer=setTimeout(()=>{cleanup();reject(new Error('No native animation frame within 250 ms of media delivery'))},250)
+          frame=requestAnimationFrame(()=>{
+            frame=0
+            const frameAt=performance.now(),style=getComputedStyle(dialog),matrix=new DOMMatrixReadOnly(style.transform)
+            const result={event:delivered,frameAt,frameDelay:frameAt-delivered.time,matches:media.matches,
+              progress:parseFloat(style.getPropertyValue('--scene-type-progress')),identity:matrix.isIdentity,x:matrix.m41,y:matrix.m42,
+              active:gsap.getTweensOf(dialog).some(tween=>tween.isActive()),type:probe.read('#modal')}
+            cleanup();resolve(result)
+          })
+        }
+        media.addEventListener('change',listener)
+        timer=setTimeout(()=>{cleanup();reject(new Error('Native reduced-motion change was not delivered'))},1000)
+      })
+      promise.catch(()=>{})
+      probe.reducedDelivery={promise,cleanup,armedAt:performance.now()}
+    })
+    await page.emulateMedia({reducedMotion:'reduce'});await finalType(page,'#modal')
+    // Capture inside the browser's first frame after native delivery, avoiding
+    // both the earlier CSS-only race and a later Playwright round-trip sample.
+    const settled=await page.evaluate(()=>window.__sceneTypeProbe.reducedDelivery.promise)
+    const proofPath=testInfo.outputPath('native-reduced-motion.json')
+    await writeFile(proofPath,JSON.stringify({cpuRate,...settled},null,2))
+    await testInfo.attach('native-reduced-motion',{path:proofPath,contentType:'application/json'})
+    expect(settled.event.matches).toBe(true);expect(settled.matches).toBe(true)
+    expect(settled.frameDelay).toBeLessThanOrEqual(250)
+    expect(settled.active).toBe(false);expect(settled.identity).toBe(true);expect(settled.progress).toBe(1)
+    geometry(settled.type);expect(settled.type.masks.every(mask=>mask.clip===0&&mask.y===0)).toBe(true)
+    await page.locator('#auth-form [name=login]').fill('still_usable')
+    await page.keyboard.press('Escape');await expect(page.locator('#modal')).toBeHidden();await expect(page.locator('.login-button')).toBeFocused()
+    const reopened=await page.locator('.login-button').evaluate(button=>{button.click();return window.__sceneTypeProbe.read('#modal')})
+    geometry(reopened);expect(reopened.progress).toBe(1);expect(reopened.masks.every(mask=>mask.clip===0&&mask.y===0)).toBe(true)
+    await page.keyboard.press('Escape');await expect(page.locator('#modal')).toBeHidden()
+    await expect(page.locator('main')).toHaveJSProperty('inert',false);expect(errors).toEqual([])
+  }finally{
+    await page.evaluate(()=>window.__sceneTypeProbe?.reducedDelivery?.cleanup()).catch(()=>{})
+    await cdp?.detach()
   }
-  await page.emulateMedia({reducedMotion:'no-preference'});await page.locator('.login-button').focus()
-  await page.evaluate(async()=>{document.querySelector('.login-button').click();await window.__sceneTypeProbe.until('#modal',value=>value.progress>.15&&value.progress<.7)})
-  await page.emulateMedia({reducedMotion:'reduce'});await finalType(page,'#modal')
-  expect(await page.locator('#modal').evaluate(async dialog=>{const {gsap}=await import('/assets/motion-vendor.js');return gsap.getTweensOf(dialog).some(tween=>tween.isActive())})).toBe(false)
-  await page.locator('#auth-form [name=login]').fill('still_usable')
-  await page.keyboard.press('Escape');await expect(page.locator('#modal')).toBeHidden();await expect(page.locator('.login-button')).toBeFocused()
-  const reopened=await page.locator('.login-button').evaluate(button=>{button.click();return window.__sceneTypeProbe.read('#modal')})
-  geometry(reopened);expect(reopened.progress).toBe(1);expect(reopened.masks.every(mask=>mask.clip===0&&mask.y===0)).toBe(true)
-  await page.keyboard.press('Escape');await expect(page.locator('#modal')).toBeHidden()
-  await expect(page.locator('main')).toHaveJSProperty('inert',false);expect(errors).toEqual([])
 })
