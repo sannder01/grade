@@ -1,0 +1,28 @@
+/* Grade header: one decorative iOS-style surface behind the native controls.
+   Keep backdrop filters off header ancestors: their scenes use position:fixed. */
+.track-header,.track-header .header-inner{background:transparent}
+.track-header .header-inner>.brand,.track-header .header-inner>.header-controls{position:relative;z-index:1}
+.track-header .header-glass-surface{position:absolute;z-index:0;inset:14px -22px;display:block;overflow:hidden;border:1px solid #45454d;border-radius:20px;background:#17171b;box-shadow:inset 0 .5px 0 #ffffff24,inset 0 -.5px 0 #0000002e,0 4px 16px #00000029;pointer-events:none!important;user-select:none;-webkit-user-select:none;transition:background-color .22s ease,border-color .22s ease,box-shadow .22s ease}
+.track-header .header-glass-surface::before{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:linear-gradient(180deg,#ffffff0d 0%,#ffffff03 38%,#00000006 100%)}
+.track-header .header-glass-surface::after{content:'';position:absolute;top:0;left:18px;right:18px;height:1px;pointer-events:none;background:linear-gradient(90deg,transparent,#ffffff4d 38%,#ffffff24 74%,transparent);opacity:.65;transition:opacity .22s ease}
+@supports ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+ .track-header .header-glass-surface{background:rgb(16 16 20 / .68);border-color:rgb(238 237 245 / .16);-webkit-backdrop-filter:blur(20px) saturate(105%);backdrop-filter:blur(20px) saturate(105%)}
+ .track-header.has-scene .header-glass-surface{background:rgb(22 22 27 / .78);border-color:rgb(238 237 245 / .2)}
+}
+.track-header.has-scene .header-glass-surface{box-shadow:inset 0 .5px 0 #ffffff20,inset 0 -.5px 0 #00000026,0 3px 12px #0000001f}
+.track-header.has-scene .header-glass-surface::after{opacity:.45}
+@media(max-width:760px){
+ .track-header .header-glass-surface{inset:10px -8px;border-radius:18px}
+ .track-header .header-glass-surface::after{left:16px;right:16px}
+}
+@media(prefers-reduced-transparency:reduce){
+ .track-header .header-glass-surface,.track-header.has-scene .header-glass-surface{background:#17171b;border-color:#45454d;-webkit-backdrop-filter:none;backdrop-filter:none}
+ .track-header .header-glass-surface::before{background:none}
+}
+@media(prefers-reduced-motion:reduce){
+ .track-header .header-glass-surface,.track-header .header-glass-surface::after{transition:none}
+}
+@media(forced-colors:active){
+ .track-header .header-glass-surface,.track-header.has-scene .header-glass-surface{background:Canvas;border:1px solid CanvasText;-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:none;forced-color-adjust:none}
+ .track-header .header-glass-surface::before,.track-header .header-glass-surface::after{display:none}
+}
