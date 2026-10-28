@@ -114,8 +114,10 @@ async function fixtures(page,{language='ru',noWebGL=false,noFloat=false,failedRe
         try{
           const width=Math.min(256,gl.drawingBufferWidth),height=Math.min(256,gl.drawingBufferHeight)
           const mobile=innerWidth<=760
-          const x=Math.max(0,Math.min(gl.drawingBufferWidth-width,Math.round(gl.drawingBufferWidth*(mobile?.53:.72)-width/2)))
-          const y=Math.max(0,Math.min(gl.drawingBufferHeight-height,Math.round(gl.drawingBufferHeight*.68-height/2)))
+          const body=event.target.querySelector('[data-hero-stage]').getBoundingClientRect(),viewport=canvas.getBoundingClientRect()
+          const bodyX=body.left+body.width*(mobile?.53:.72),bodyY=body.top+body.height*.32
+          const x=Math.max(0,Math.min(gl.drawingBufferWidth-width,Math.round((bodyX-viewport.left)/viewport.width*gl.drawingBufferWidth-width/2)))
+          const y=Math.max(0,Math.min(gl.drawingBufferHeight-height,Math.round((viewport.bottom-bodyY)/viewport.height*gl.drawingBufferHeight-height/2)))
           const data=new Uint8Array(width*height*4)
           gl.readPixels(x,y,width,height,gl.RGBA,gl.UNSIGNED_BYTE,data)
           let hash=2166136261,lit=0,sum=0,cx=0,cy=0,minX=width,maxX=0,minY=height,maxY=0
@@ -143,6 +145,23 @@ async function fixtures(page,{language='ru',noWebGL=false,noFloat=false,failedRe
       probe.frames.push({context:entry.id,frame,assembly,progress,camera,dispersion,pointerStrength,pixels,at:performance.now(),cameraFrozen:event.detail.cameraFrozen,
         reflectionMatches:event.detail.positionTexture===event.detail.reflectionTexture,
         simulation:simulation?{id:simulation.id,step:simulation.step,time:simulation.time,ray:simulation.ray,inputRevision:simulation.inputRevision}:null})
+      if(probe.headerRequest&&assembly===1){
+        const request=probe.headerRequest;probe.headerRequest=null
+        const header=document.querySelector('.track-header'),headerBox=header.getBoundingClientRect(),viewport=canvas.getBoundingClientRect()
+        const width=gl.drawingBufferWidth,height=Math.min(gl.drawingBufferHeight,Math.round(headerBox.height/viewport.height*gl.drawingBufferHeight))
+        const bottom=Math.max(0,Math.min(gl.drawingBufferHeight-height,Math.round((viewport.bottom-headerBox.bottom)/viewport.height*gl.drawingBufferHeight)))
+        const data=new Uint8Array(width*height*4)
+        gl.readPixels(0,bottom,width,height,gl.RGBA,gl.UNSIGNED_BYTE,data)
+        let lit=0,maximum=0
+        for(let index=0;index<data.length;index+=4){const value=Math.max(data[index],data[index+1],data[index+2]);maximum=Math.max(maximum,value);if(value>24)lit++}
+        const css=getComputedStyle(header),inner=getComputedStyle(header.querySelector('.header-inner'))
+        probe.headerBand={label:request.label,frame,progress,simulationId:simulation.id,lit,maximum,error:gl.getError(),width,height,
+          canvas:viewport.toJSON(),header:headerBox.toJSON(),background:css.backgroundColor,innerBackground:inner.backgroundColor,
+          radius:[css.borderTopLeftRadius,css.borderTopRightRadius,css.borderBottomLeftRadius,css.borderBottomRightRadius],blur:css.backdropFilter||'none',webkitBlur:css.webkitBackdropFilter||css.getPropertyValue('-webkit-backdrop-filter')||'none',
+          masks:[...header.querySelectorAll('.brand,.header-control,.header-account')].map(node=>node.getBoundingClientRect().toJSON())}
+        probe.headerRaw={data,width,height,cssWidth:headerBox.width,cssHeight:headerBox.height}
+        if(request.freeze)queueMicrotask(()=>{Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});document.dispatchEvent(new Event('visibilitychange'))})
+      }
       if(probe.frames.length>1400)probe.frames.splice(0,400)
       if(earlyEntry&&!probe.entry){
         probe.entry={assembly}
@@ -284,7 +303,7 @@ test('real particle pixels assemble, react to the pointer and follow a reversibl
   expect(gathered.pixels.lit).toBeGreaterThan(12)
   expect(gathered.pixels.bounds[2]-gathered.pixels.bounds[0]).toBeGreaterThan(10)
   expect(new Set(frames.filter(frame=>frame.pixels).map(frame=>frame.pixels.hash)).size).toBeGreaterThan(4)
-  const beforePointer=frames.length,box=await page.locator('[data-hero-canvas]').boundingBox()
+  const beforePointer=frames.length,box=await page.locator('[data-hero-stage]').boundingBox()
   await page.mouse.move(box.x+box.width*.68,box.y+box.height*.32)
   await page.mouse.move(box.x+box.width*.73,box.y+box.height*.36,{steps:8})
   await expect.poll(()=>page.evaluate(index=>window.__sceneProbe.frames.slice(index).some(frame=>frame.pointerStrength>.05&&frame.pixels),beforePointer)).toBe(true)
@@ -564,4 +583,131 @@ test('a live reduced-motion preference releases the active GPU and can resume wi
   expect(await page.evaluate(()=>{const probe=window.__sceneProbe,id=probe.contexts.at(-1).id;return probe.frames.filter(frame=>frame.context===id).every(frame=>frame.assembly===1)})).toBe(true)
   await expect(canvas(page)).toHaveCount(1)
   clean(audit)
+})
+
+async function legacyBodyProjection(page){
+  return page.evaluate(async()=>{
+    const T=await import('/assets/hero-scene-vendor.js'),probe=window.__sceneProbe,s=probe.lastSimulation,frame=probe.frames.at(-1)
+    const stage=document.querySelector('[data-hero-stage]').getBoundingClientRect(),viewport=probe.lastCanvas.getBoundingClientRect(),mobile=innerWidth<=760
+    // The pre-extension composition is the compatibility control: a 40-degree
+    // lens over the original body frame, with its existing scroll camera/pose.
+    // Project the real sampled sculpture anchors through both compositions.
+    const camera=new T.PerspectiveCamera(40,stage.width/stage.height,.1,80)
+    camera.position.set(frame.camera.x,frame.camera.y,frame.camera.z)
+    camera.lookAt(frame.progress*.45,-frame.progress*.25,0);camera.updateMatrixWorld()
+    const model=new T.Group(),viewHeight=2*Math.tan(40*Math.PI/360)*12
+    model.scale.setScalar(mobile?.66:1)
+    model.position.set(viewHeight*camera.aspect*(mobile?.03:.22),viewHeight*(mobile?.21:.11),0)
+    model.rotation.set(.2+frame.progress*.22,-.42+frame.progress*.72,-.1+frame.progress*.1);model.updateMatrixWorld()
+    const actualModel=new T.Matrix4().fromArray(s.matrixWorld),actualProjection=new T.Matrix4().fromArray(s.viewProjection),home=s.homeTexture.image.data
+    let maxError=0,count=0
+    for(let index=0;index<s.coreCount;index+=Math.max(1,Math.floor(s.coreCount/128))){
+      const offset=index*4,point=new T.Vector3(home[offset],home[offset+1],home[offset+2])
+      const actual=point.clone().applyMatrix4(actualModel).applyMatrix4(actualProjection),expected=point.applyMatrix4(model.matrixWorld).project(camera)
+      const ax=viewport.left+(actual.x*.5+.5)*viewport.width,ay=viewport.top+(1-(actual.y*.5+.5))*viewport.height
+      const ex=stage.left+(expected.x*.5+.5)*stage.width,ey=stage.top+(1-(expected.y*.5+.5))*stage.height
+      maxError=Math.max(maxError,Math.hypot(ax-ex,ay-ey));count++
+    }
+    const input=(await import('/particle-input.js')).getParticleInput().pointer
+    const ray=new T.Vector3((input.x-stage.left)/stage.width*2-1,1-(input.y-stage.top)/stage.height*2,.5).unproject(camera).sub(camera.position).normalize()
+    return {count,maxCssError:maxError,rayError:ray.distanceTo(new T.Vector3(...s.ray)),pointerActive:s.pointerActive,
+      simulationId:s.id,progress:frame.progress,stage:stage.toJSON(),canvas:viewport.toJSON(),camera:frame.camera}
+  })
+}
+async function captureHeaderBand(page,label,freeze=false){
+  await page.evaluate(({label,freeze})=>{window.__sceneProbe.headerRequest={label,freeze}},{label,freeze})
+  await expect.poll(()=>page.evaluate(()=>window.__sceneProbe.headerBand?.label)).toBe(label)
+  const result=await page.evaluate(()=>window.__sceneProbe.headerBand)
+  expect(result.error).toBe(0);expect(result.lit).toBeGreaterThan(10)
+  return result
+}
+async function headerComposite(page,band,testInfo){
+  await expect(hero(page)).toHaveAttribute('data-hero-scene-state','paused')
+  expect(await framesStable(page)).toBe(true)
+  const clip={x:0,y:0,width:band.header.width,height:band.header.height}
+  const alphaPath=testInfo.outputPath('header-particles-alpha.png'),opaquePath=testInfo.outputPath('header-particles-opaque.png')
+  const alpha=await page.screenshot({path:alphaPath,clip,scale:'css'})
+  await page.evaluate(()=>{const header=document.querySelector('.track-header');window.__sceneProbe.savedHeaderBackground=header.style.backgroundColor;header.style.backgroundColor='rgb(9,9,11)'})
+  let opaque
+  try{opaque=await page.screenshot({path:opaquePath,clip,scale:'css'})}
+  finally{await page.evaluate(()=>{document.querySelector('.track-header').style.backgroundColor=window.__sceneProbe.savedHeaderBackground})}
+  const proof=await page.evaluate(async({alpha,opaque,masks})=>{
+    const decode=async data=>{
+      const bitmap=await createImageBitmap(new Blob([Uint8Array.from(atob(data),character=>character.charCodeAt(0))],{type:'image/png'}))
+      const canvas=document.createElement('canvas');canvas.width=bitmap.width;canvas.height=bitmap.height
+      const context=canvas.getContext('2d');context.drawImage(bitmap,0,0);bitmap.close()
+      return {data:context.getImageData(0,0,canvas.width,canvas.height).data,width:canvas.width,height:canvas.height}
+    }
+    const a=await decode(alpha),b=await decode(opaque),raw=window.__sceneProbe.headerRaw
+    let compared=0,changed=0,matched=0,rawLit=0,maxDelta=0,opaqueMax=0
+    for(let y=1;y<a.height-1;y++)for(let x=1;x<a.width-1;x++){
+      if(masks.some(rect=>x>=rect.left-4&&x<=rect.right+4&&y>=rect.top-4&&y<=rect.bottom+4))continue
+      const offset=(y*a.width+x)*4,delta=Math.max(...[0,1,2].map(channel=>Math.abs(a.data[offset+channel]-b.data[offset+channel])))
+      compared++;maxDelta=Math.max(maxDelta,delta);opaqueMax=Math.max(opaqueMax,b.data[offset],b.data[offset+1],b.data[offset+2])
+      if(delta>=2)changed++
+      const gx=Math.min(raw.width-1,Math.floor((x+.5)/a.width*raw.width)),gy=Math.min(raw.height-1,Math.floor((1-(y+.5)/a.height)*raw.height))
+      let gpuLight=0
+      for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+        const px=Math.max(0,Math.min(raw.width-1,gx+dx)),py=Math.max(0,Math.min(raw.height-1,gy+dy)),index=(py*raw.width+px)*4
+        gpuLight=Math.max(gpuLight,raw.data[index],raw.data[index+1],raw.data[index+2])
+      }
+      if(gpuLight>24){rawLit++;if(delta>=2)matched++}
+    }
+    return {compared,changed,matchedGpuPixels:matched,rawLitOutsideControls:rawLit,maximumDelta:maxDelta,opaqueMaximum:opaqueMax,width:a.width,height:a.height}
+  },{alpha:alpha.toString('base64'),opaque:opaque.toString('base64'),masks:band.masks})
+  await testInfo.attach('header-alpha',{path:alphaPath,contentType:'image/png'})
+  await testInfo.attach('header-opaque-control',{path:opaquePath,contentType:'image/png'})
+  expect(proof.compared).toBeGreaterThan(1000)
+  expect(proof.opaqueMaximum).toBeLessThanOrEqual(16)
+  expect(proof.maximumDelta).toBeGreaterThanOrEqual(2)
+  expect(proof.matchedGpuPixels).toBeGreaterThanOrEqual(3)
+  return proof
+}
+
+for(const [width,height,headerHeight] of [[1440,1000,100],[390,844,82]])test(`real particles composite beneath the plain header while body projection and pointer rays stay unchanged at ${width}px`,async({browser,baseURL},testInfo)=>{
+  const context=await browser.newContext({baseURL,viewport:{width,height},deviceScaleFactor:width===390?3:1,reducedMotion:'no-preference',...(width===390?{isMobile:true,hasTouch:true}:{})})
+  const page=await context.newPage()
+  try{
+    const audit=await fixtures(page)
+    await open(page);await gpuReady(page);await assembled(page)
+    const initial=await legacyBodyProjection(page)
+    expect(initial.count).toBeGreaterThan(100);expect(initial.maxCssError).toBeLessThan(.25)
+    await scrollProgress(page,.35);await assembled(page)
+    const at35=await legacyBodyProjection(page)
+    expect(at35.maxCssError).toBeLessThan(.25)
+    const band=await captureHeaderBand(page,'scroll-35',true)
+    expect(Math.abs(band.header.top)).toBeLessThan(1);expect(band.header.height).toBe(headerHeight)
+    expect(Math.abs(band.canvas.top-band.header.top)).toBeLessThan(1)
+    expect(Math.abs(band.canvas.height-height)).toBeLessThan(1)
+    expect(Number(band.background.match(/[\d.]+/g).at(-1))).toBeCloseTo(.94,3)
+    expect(band.radius.every(radius=>parseFloat(radius)===0)).toBe(true)
+    expect(band.blur).toBe('none');expect(band.webkitBlur).toBe('none')
+    const composite=await headerComposite(page,band,testInfo)
+    await page.evaluate(()=>{delete document.hidden;document.dispatchEvent(new Event('visibilitychange'))})
+    await assembled(page)
+    await scrollProgress(page,.6);await assembled(page)
+    const at60=await legacyBodyProjection(page),band60=await captureHeaderBand(page,'scroll-60')
+    expect(at60.maxCssError).toBeLessThan(.25)
+    expect(at60.simulationId).toBe(initial.simulationId);expect(band60.simulationId).toBe(initial.simulationId)
+    const frame=await page.locator('[data-hero-stage]').boundingBox()
+    await page.mouse.move(frame.x+frame.width*.68,frame.y+frame.height*.35);await advance(page,.1)
+    const pointed=await legacyBodyProjection(page)
+    expect(pointed.pointerActive).toBe(1);expect(pointed.rayError).toBeLessThan(.00001)
+    await page.setViewportSize(width===390?{width:430,height:932}:{width:1280,height:900})
+    await scrollProgress(page,.35);await assembled(page)
+    const resizedFrame=await page.locator('[data-hero-stage]').boundingBox()
+    await page.mouse.move(resizedFrame.x+resizedFrame.width*.68,resizedFrame.y+resizedFrame.height*.35);await advance(page,.1)
+    const resized=await legacyBodyProjection(page)
+    expect(resized.simulationId).toBe(initial.simulationId);expect(resized.pointerActive).toBe(1)
+    expect(resized.maxCssError).toBeLessThan(.25);expect(resized.rayError).toBeLessThan(.00001)
+    await expect(canvas(page)).toHaveCount(1)
+    const proof={width,height,initial,at35,band,composite,at60,band60,pointed,resized}
+    const proofPath=testInfo.outputPath('header-particles-proof.json')
+    await writeFile(proofPath,JSON.stringify(proof,null,2));await testInfo.attach('header-particles-proof',{path:proofPath,contentType:'application/json'})
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+    expect(await page.evaluate(()=>window.__sceneProbe.errors)).toEqual([]);clean(audit)
+  }finally{
+    await page.evaluate(()=>{delete document.hidden;document.dispatchEvent(new Event('visibilitychange'));const header=document.querySelector('.track-header');if(header&&window.__sceneProbe?.savedHeaderBackground!==undefined)header.style.backgroundColor=window.__sceneProbe.savedHeaderBackground}).catch(()=>{})
+    await context.close()
+  }
 })

@@ -1,9 +1,9 @@
 /* Grade / A: a full-width cinematic stage, with a real DOM reading layer. */
 .cinema-home.home-page{width:100%;max-width:none;margin:0}
 .cinema-home>.cinema-scene{--cinema-header:100px;--cinema-gutter:max(56px,calc((100vw - 1440px)/2));position:relative;display:block;width:100%;height:205vh;height:205svh;min-height:0;margin:0;padding:0;border:0;border-radius:0;background:#09090b;overflow:visible;isolation:isolate}
-.cinema-stage{position:sticky;top:var(--cinema-header);height:calc(100vh - var(--cinema-header));height:calc(100svh - var(--cinema-header));min-height:0;width:100%;overflow:hidden;isolation:isolate;background:#09090b}
+.cinema-stage{position:sticky;top:var(--cinema-header);height:calc(100vh - var(--cinema-header));height:calc(100svh - var(--cinema-header));min-height:0;width:100%;overflow:visible;clip-path:inset(calc(-1 * var(--cinema-header)) 0 0 0);isolation:isolate;background:#09090b}
 .cinema-stage::after{content:'';position:absolute;z-index:2;inset:0;pointer-events:none;background:linear-gradient(0deg,#09090b 0%,#09090b00 31%),linear-gradient(90deg,#09090b35 0%,#09090b00 35%)}
-.cinema-canvas{position:absolute;z-index:1;inset:0;width:100%;height:100%;overflow:hidden;pointer-events:none}
+.cinema-canvas{position:absolute;z-index:1;inset:calc(-1 * var(--cinema-header)) 0 0;width:100%;height:auto;overflow:hidden;pointer-events:none}
 .cinema-canvas>canvas{display:block;width:100%;height:100%;pointer-events:none}
 .cinema-kicker{position:absolute;z-index:3;left:var(--cinema-gutter);top:36px;display:flex;flex-direction:column;gap:7px;margin:0;font:400 13px/1.6 'Manrope',sans-serif;letter-spacing:0;color:#e0dfda}
 .cinema-kicker>span{font-size:11px;color:#8d8c90}

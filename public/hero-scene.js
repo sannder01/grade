@@ -169,11 +169,19 @@ export function mountHeroScene(root,{animate = true} = {}) {
     if (!gpu) return
     const bounds=host.getBoundingClientRect()
     if (!bounds.width || !bounds.height) return
+    const frame=stage.getBoundingClientRect()
+    const frameHeight=frame.height || bounds.height
+    const headerInset=Math.max(0,frame.top-bounds.top)
     const {renderer,camera,uniforms}=gpu
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1,mobile.matches ? 1.25 : 1.5))
     renderer.setSize(bounds.width,bounds.height,false)
-    camera.aspect=bounds.width/bounds.height; camera.updateProjectionMatrix()
-    uniforms.uPointScale.value=bounds.height*.034
+    // Expose the existing scene above its old frame, beneath the header. An
+    // off-axis view preserves the original body pixels instead of zooming or
+    // moving the sculpture when the canvas gains those extra rows.
+    camera.aspect=bounds.width/frameHeight
+    if (headerInset>.5) camera.setViewOffset(bounds.width,frameHeight,0,-headerInset,bounds.width,bounds.height)
+    else camera.clearViewOffset()
+    uniforms.uPointScale.value=frameHeight*.034
     uniforms.uPixelRatio.value=renderer.getPixelRatio()
     setProgress()
     wake()
