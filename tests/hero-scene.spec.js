@@ -8,7 +8,7 @@ const hero=page=>page.locator('[data-hero-scene]')
 const canvas=page=>page.locator('[data-hero-canvas] .hero-scene-canvas')
 const ready=page=>expect(page.locator('main')).not.toHaveAttribute('aria-busy','true')
 
-async function fixtures(page,{language='ru',noWebGL=false,noFloat=false,failedResources=false,earlyEntry=false}={}){
+async function fixtures(page,{language='ru',noWebGL=false,noFloat=false,failedResources=false,earlyEntry=false,asyncPhysics=false}={}){
   const errors=[],writes=[],unexpected=[]
   page.on('pageerror',error=>errors.push(error.message))
   await page.route('**/api/**',route=>{
@@ -38,7 +38,7 @@ async function fixtures(page,{language='ru',noWebGL=false,noFloat=false,failedRe
     await page.route('**/*.woff2',route=>route.abort())
   }
   const frameMs=Number(process.env.GRADE_PARTICLE_TEST_FRAME_MS||0)
-  await page.addInitScript(({language,noWebGL,noFloat,earlyEntry,frameMs})=>{
+  await page.addInitScript(({language,noWebGL,noFloat,earlyEntry,frameMs,asyncPhysics})=>{
     if(frameMs>0){
       const nativeRequest=requestAnimationFrame.bind(window),nativeCancel=cancelAnimationFrame.bind(window),queue=new Map()
       let next=0,timer=null,nativeId=null,last=0,flushing=false
@@ -71,17 +71,12 @@ async function fixtures(page,{language='ru',noWebGL=false,noFloat=false,failedRe
       probe.allocations.push({type,success:Boolean(context)})
       return context
     }
-    probe.readSimulation=()=>{
-      const s=probe.lastSimulation,entry=probe.simulations.find(entry=>entry.id===s.id)
-      const length=s.width*s.height*4
-      entry.positions||=new Float32Array(length);entry.velocities||=new Float32Array(length)
-      s.renderer.readRenderTargetPixels(s.positionTarget,0,0,s.width,s.height,entry.positions)
-      s.renderer.readRenderTargetPixels(s.velocityTarget,0,0,s.width,s.height,entry.velocities)
-      const p=entry.positions,v=entry.velocities,home=s.homeTexture.image.data
+    probe.summarizeSimulation=(s,p,v,rect,wall)=>{
+      const entry=probe.simulations.find(entry=>entry.id===s.id),home=s.homeTexture.image.data
       const summarize=(start,count,near=false)=>{
         let n=0,error=0,zError=0,energy=0,zEnergy=0,cx=0,cy=0,cz=0,finite=true
         const samples=[],bounds={left:Infinity,right:-Infinity,top:Infinity,bottom:-Infinity}
-        const m=s.matrixWorld,q=s.viewProjection,rect=probe.lastCanvas.getBoundingClientRect(),corridor=probe.corridor
+        const m=s.matrixWorld,q=s.viewProjection,corridor=s.corridor??probe.corridor
         for(let i=start;i<start+count;i++){
           const k=i*4,x=home[k],y=home[k+1],z=home[k+2]
           if(near||i%23===0){
@@ -101,8 +96,71 @@ async function fixtures(page,{language='ru',noWebGL=false,noFloat=false,failedRe
         }
         return {count:n,rms:Math.sqrt(error/Math.max(1,n)),zRms:Math.sqrt(zError/Math.max(1,n)),energy:energy/Math.max(1,n),zEnergy:zEnergy/Math.max(1,n),center:[cx/n,cy/n,cz/n],finite,samples,bounds}
       }
-      return {id:s.id,step:s.step,time:s.time,wall:performance.now(),core:summarize(0,s.coreCount),near:summarize(0,s.coreCount,true),dust:summarize(s.coreCount,s.dustCount),ray:s.ray,pointerActive:s.pointerActive,pointerSpeed:s.pointerSpeed,inputRevision:s.inputRevision,
+      return {id:s.id,step:s.step,time:s.time,wall,core:summarize(0,s.coreCount),near:summarize(0,s.coreCount,true),dust:summarize(s.coreCount,s.dustCount),ray:s.ray,pointerActive:s.pointerActive,pointerSpeed:s.pointerSpeed,inputRevision:s.inputRevision,
         positionPool:entry.positionPool.length,velocityPool:entry.velocityPool.length}
+    }
+    probe.readSimulation=()=>{
+      const s=probe.lastSimulation,entry=probe.simulations.find(entry=>entry.id===s.id),length=s.width*s.height*4
+      entry.positions||=new Float32Array(length);entry.velocities||=new Float32Array(length)
+      s.renderer.readRenderTargetPixels(s.positionTarget,0,0,s.width,s.height,entry.positions)
+      s.renderer.readRenderTargetPixels(s.velocityTarget,0,0,s.width,s.height,entry.velocities)
+      return probe.summarizeSimulation(s,entry.positions,entry.velocities,probe.lastCanvas.getBoundingClientRect(),performance.now())
+    }
+    // The heavy physics observer uses Three's native PBO/fence reader. Both FBO
+    // requests are issued in this actual frame callback before either is awaited.
+    // Snapshot geometry and simulation clocks before readback completion, so
+    // delayed GPU results cannot acquire a later frame's pose or input metadata.
+    probe.startAsyncPhysics=label=>{
+      if(probe.asyncCapture)throw new Error('An async physics window is already open')
+      const length=probe.lastSimulation.width*probe.lastSimulation.height*4
+      probe.asyncCapture={label,active:true,pending:new Set(),samples:[],errors:[],maxPending:0,endTime:null,
+        finished:new Promise(resolve=>probe.resolvePhysicsEnd=resolve),resolveEnd:probe.resolvePhysicsEnd,
+        maxPairs:Math.min(12,Math.floor(12*1024*1024/(length*8))),bytesPerPair:length*8,firstStep:null,lastStep:null}
+    }
+    probe.captureAsyncPhysics=(s,canvas)=>{
+      const capture=probe.asyncCapture
+      if(!capture?.active)return
+      if(capture.pending.size>=capture.maxPairs){
+        const message='Async physics PBO queue overflow: '+capture.pending.size+' frame pairs'
+        capture.errors.push(message);probe.errors.push(message);capture.active=false;capture.resolveEnd();return
+      }
+      const capturedAt=performance.now(),rect=canvas.getBoundingClientRect().toJSON(),length=s.width*s.height*4
+      const snapshot={...s,matrixWorld:[...s.matrixWorld],viewProjection:[...s.viewProjection],ray:[...s.ray],corridor:probe.corridor?{...probe.corridor}:null}
+      const positions=new Float32Array(length),velocities=new Float32Array(length)
+      let field=null
+      if(probe.fieldProbe&&probe.sharedInput){
+        const image=probe.sharedInput.canvas,context=image.getContext('2d'),corridor=probe.corridor
+        field=[0,.25,.5,.75,1].map(t=>{
+          const x=corridor.left+(corridor.right-corridor.left)*t,y=corridor.y
+          const px=Math.max(0,Math.min(image.width-1,Math.round(x/innerWidth*image.width))),py=Math.max(0,Math.min(image.height-1,Math.round(y/innerHeight*image.height)))
+          return {x,y,rgb:[...context.getImageData(px,py,1,1).data].slice(0,3)}
+        })
+      }
+      const submittedAt=performance.now()
+      const positionRead=s.renderer.readRenderTargetPixelsAsync(s.positionTarget,0,0,s.width,s.height,positions)
+      const velocityRead=s.renderer.readRenderTargetPixelsAsync(s.velocityTarget,0,0,s.width,s.height,velocities)
+      const submittedBothAt=performance.now()
+      const pending=Promise.all([positionRead,velocityRead]).then(()=>{
+        const readFinishedAt=performance.now(),summary=probe.summarizeSimulation(snapshot,positions,velocities,rect,capturedAt)
+        capture.samples.push({...summary,capturedAt,submittedAt,submittedBothAt,readFinishedAt,analyzedAt:performance.now(),rect,
+          matrixWorld:snapshot.matrixWorld,viewProjection:snapshot.viewProjection,field})
+      }).catch(error=>{capture.errors.push(error.message);probe.errors.push(error.message)}).finally(()=>capture.pending.delete(pending))
+      capture.pending.add(pending);capture.maxPending=Math.max(capture.maxPending,capture.pending.size)
+      capture.firstStep??=s.step;capture.lastStep=s.step
+      if(capture.endTime!==null&&s.time>=capture.endTime){capture.active=false;capture.resolveEnd({time:s.time,step:s.step})}
+    }
+    probe.stopAsyncPhysics=async()=>{
+      const capture=probe.asyncCapture
+      if(!capture)throw new Error('No async physics window to drain')
+      capture.active=false;capture.resolveEnd()
+      await Promise.all([...capture.pending])
+      probe.asyncCapture=null
+      capture.samples.sort((a,b)=>a.step-b.step)
+      const result={label:capture.label,samples:capture.samples,errors:capture.errors,maxPendingPairs:capture.maxPending,
+        maxPendingReadbacks:capture.maxPending*2,maxPendingBytes:capture.maxPending*capture.bytesPerPair,
+        pairLimit:capture.maxPairs,firstStep:capture.firstStep,lastStep:capture.lastStep}
+      ;(probe.asyncWindows??=[]).push(result)
+      return result
     }
     document.addEventListener('grade:hero-scene-frame',event=>{
       const {gl,canvas,frame,assembly,progress,camera,dispersion,pointerStrength}=event.detail
@@ -110,7 +168,7 @@ async function fixtures(page,{language='ru',noWebGL=false,noFloat=false,failedRe
       if(!entry){entry={root:event.target,canvas,gl,id:probe.contexts.length+1};probe.contexts.push(entry)}
       let pixels=null
       // Include the first fully assembled frame independently of periodic sampling.
-      if(frame<3||frame%4===0||(assembly===1&&!entry.finalPixels)){
+      if(!asyncPhysics&&(frame<3||frame%4===0||(assembly===1&&!entry.finalPixels))){
         try{
           const width=Math.min(256,gl.drawingBufferWidth),height=Math.min(256,gl.drawingBufferHeight)
           const mobile=innerWidth<=760
@@ -138,6 +196,7 @@ async function fixtures(page,{language='ru',noWebGL=false,noFloat=false,failedRe
         if(!current){current={id:simulation.id,positionPool:[],velocityPool:[]};probe.simulations.push(current)}
         if(!current.positionPool.includes(simulation.positionTarget))current.positionPool.push(simulation.positionTarget)
         if(!current.velocityPool.includes(simulation.velocityTarget))current.velocityPool.push(simulation.velocityTarget)
+        if(asyncPhysics)probe.captureAsyncPhysics(simulation,canvas)
         if(probe.monitor&&(probe.monitorEveryStep||simulation.time-(probe.lastSampleTime||0)>.1)){
           try{probe.samples.push(probe.readSimulation());probe.lastSampleTime=simulation.time}catch(error){probe.errors.push(error.message)}
         }
@@ -176,7 +235,7 @@ async function fixtures(page,{language='ru',noWebGL=false,noFloat=false,failedRe
         })
       }
     })
-  },{language,noWebGL,noFloat,earlyEntry,frameMs})
+  },{language,noWebGL,noFloat,earlyEntry,frameMs,asyncPhysics})
   return {errors,writes,unexpected}
 }
 async function open(page){
@@ -425,77 +484,207 @@ test('visible physics stays alive, opaque scenes pause it and a partial auth pan
   clean(audit)
 })
 
-test('GPU velocities produce stronger fast repulsion, depth, inertia and a damped return to the real home shape',async({page},testInfo)=>{
-  test.setTimeout(120000)
-  const audit=await fixtures(page)
-  await open(page);await gpuReady(page);await assembled(page);await advance(page,2.5)
-  const initial=await physical(page),bounds=initial.core.bounds
-  const path={left:bounds.left-25,right:bounds.right+25,y:(bounds.top+bounds.bottom)/2,radius:(bounds.bottom-bounds.top)*.13}
-  await page.evaluate(path=>{window.__sceneProbe.corridor=path},path)
-  const baseline=await physical(page)
-  expect(baseline.near.count).toBeGreaterThan(20)
-  const cpuRate=Number(process.env.GRADE_PARTICLE_TEST_CPU_RATE||1)
-  const cpuSession=cpuRate>1?await page.context().newCDPSession(page):null
-  if(cpuSession)await cpuSession.send('Emulation.setCPUThrottlingRate',{rate:cpuRate})
-  try{
-  await page.evaluate(async()=>{
-    const input=(await import('/particle-input.js')).getParticleInput(),probe=window.__sceneProbe
-    // Registered after the production window handler: observe the actual input
-    // event before its speed decays while waiting for a slow GPU/RAF callback.
-    window.addEventListener('pointermove',()=>{
-      if(probe.inputRecording)probe.gestureEvents.push({speed:input.pointer.speed,x:input.pointer.x,y:input.pointer.y,at:performance.now()})
-    },{passive:true})
-  })
-  async function sweep(duration){
-    await page.mouse.move(path.left,path.y)
-    await advance(page,.8)
-    await page.evaluate(()=>{const probe=window.__sceneProbe;probe.samples=[];probe.gestureEvents=[];probe.inputRecording=true;probe.monitor=true;probe.monitorEveryStep=true;probe.lastSampleTime=0})
-    const segments=duration<200?1:12
-    for(let index=1;index<=segments;index++){
-      await page.mouse.move(path.left+(path.right-path.left)*index/segments,path.y)
-      await page.waitForTimeout(duration/segments)
-    }
-    const lastStep=await page.evaluate(()=>{window.__sceneProbe.inputRecording=false;return window.__sceneProbe.lastSimulation.step})
-    await expect.poll(()=>page.evaluate(()=>window.__sceneProbe.lastSimulation.step),{timeout:30000}).toBeGreaterThanOrEqual(lastStep+8)
-    await page.evaluate(()=>{window.__sceneProbe.monitor=false;window.__sceneProbe.monitorEveryStep=false})
-    return page.evaluate(()=>({events:window.__sceneProbe.gestureEvents,samples:window.__sceneProbe.samples.map(sample=>({energy:sample.near.energy,rms:sample.near.rms,zRms:sample.near.zRms,zEnergy:sample.near.zEnergy,speed:sample.pointerSpeed,time:sample.time,wall:sample.wall,z:sample.near.samples.filter((_,index)=>index%3===2)}))}))
+// Read every actual compute step in a bounded async window; no lucky return
+// frame and no silent peak dropping. The other scene cases retain the sync reader.
+async function physicsWindow(page,label,seconds=.35){
+  await page.evaluate(label=>window.__sceneProbe.startAsyncPhysics(label),label)
+  await page.evaluate(async seconds=>{const p=window.__sceneProbe,c=p.asyncCapture;c.endTime=p.lastSimulation.time+seconds;await c.finished},seconds)
+  const result=await page.evaluate(()=>window.__sceneProbe.stopAsyncPhysics())
+  verifyPhysicsWindow(result)
+  return result
+}
+function verifyPhysicsWindow(window){
+  expect(window.errors).toEqual([])
+  expect(window.samples.length).toBeGreaterThanOrEqual(4)
+  expect(window.maxPendingPairs).toBeLessThanOrEqual(12)
+  expect(window.maxPendingReadbacks).toBeLessThanOrEqual(24)
+  expect(window.maxPendingBytes).toBeLessThanOrEqual(12*1024*1024)
+  expect(window.samples.length).toBe(window.lastStep-window.firstStep+1)
+  for(let index=0;index<window.samples.length;index++){
+    const sample=window.samples[index]
+    expect(sample.core.finite&&sample.near.finite&&sample.dust.finite).toBe(true)
+    expect(sample.submittedBothAt).toBeGreaterThanOrEqual(sample.submittedAt)
+    expect(sample.readFinishedAt).toBeGreaterThanOrEqual(sample.submittedBothAt)
+    if(index)expect(sample.step).toBe(window.samples[index-1].step+1)
   }
-  const slow=await sweep(1000)
-  await page.mouse.move(0,0);await advance(page,2)
-  const fast=await sweep(80)
-  const maximum=(samples,key)=>Math.max(...samples.map(sample=>sample[key]))
-  const cadence=fast.samples.slice(1).map((sample,index)=>sample.wall-fast.samples[index].wall).sort((a,b)=>a-b)
-  const zMotion=samples=>Math.max(...samples.slice(1).map((sample,index)=>rmsDifference(sample.z,samples[index].z)))
-  const zRate=samples=>Math.max(...samples.slice(1).map((sample,index)=>rmsDifference(sample.z,samples[index].z)/(sample.time-samples[index].time)))
-  const peak={slowEnergy:maximum(slow.samples,'energy'),fastEnergy:maximum(fast.samples,'energy'),slowSpeed:maximum(slow.events,'speed'),fastSpeed:maximum(fast.events,'speed'),
-    sampledSlowSpeed:maximum(slow.samples,'speed'),sampledFastSpeed:maximum(fast.samples,'speed'),slowSamples:slow.samples.length,fastSamples:fast.samples.length,
-    fastDepth:maximum(fast.samples,'zRms'),baselineDepth:baseline.near.zRms,fastZEnergy:maximum(fast.samples,'zEnergy'),baselineZEnergy:baseline.near.zEnergy,
-    fastZMotion:zMotion(fast.samples),slowZMotion:zMotion(slow.samples),fastZRate:zRate(fast.samples),slowZRate:zRate(slow.samples),
-    wallCadenceP95:cadence[Math.floor((cadence.length-1)*.95)],frameMs:Number(process.env.GRADE_PARTICLE_TEST_FRAME_MS||0),cpuRate}
-  await testInfo.attach('real-gpu-response',{body:JSON.stringify(peak),contentType:'application/json'})
-  expect(peak.fastSpeed).toBeGreaterThan(peak.slowSpeed+.1)
-  expect(peak.fastEnergy).toBeGreaterThan(peak.slowEnergy*1.05)
-  expect(peak.fastZEnergy).toBeGreaterThan(baseline.near.zEnergy*1.5)
-  expect(peak.fastZRate).toBeGreaterThan(peak.slowZRate*1.5)
-  const disturbed=await physical(page)
-  await page.mouse.move(0,0);await advance(page,.2)
-  const inertia=await physical(page)
-  expect(inertia.near.energy).toBeGreaterThan(baseline.near.energy*1.1)
-  expect(rmsDifference(inertia.core.samples,disturbed.core.samples)).toBeGreaterThan(.001)
-  await advance(page,2)
-  const returned=await physical(page)
-  const metrics={...peak,baselineEnergy:baseline.near.energy,baselineError:baseline.near.rms,disturbedError:disturbed.near.rms,
-    inertiaEnergy:inertia.near.energy,returnEnergy:returned.near.energy,returnError:returned.near.rms,
-    simulationId:returned.id,simulationTime:returned.time,coreFinite:returned.core.finite,dustFinite:returned.dust.finite}
-  const evidence=testInfo.outputPath('real-gpu-response.json')
-  await writeFile(evidence,JSON.stringify(metrics,null,2))
-  await testInfo.attach('real-gpu-response-complete',{path:evidence,contentType:'application/json'})
-  expect(returned.near.rms).toBeLessThan(Math.max(...fast.samples.map(sample=>sample.rms))*.85)
-  expect(returned.near.energy).toBeLessThan(peak.fastEnergy*.5)
-  expect(returned.core.finite&&returned.dust.finite).toBe(true)
-  expect(returned.id).toBe(initial.id)
-  clean(audit)
-  }finally{if(cpuSession)await cpuSession.detach()}
+}
+const physicsMax=(window,key)=>Math.max(...window.samples.map(sample=>sample.near[key]))
+const physicsZRate=window=>Math.max(...window.samples.slice(1).map((sample,index)=>{
+  const previous=window.samples[index],z=sample.near.samples.filter((_,i)=>i%3===2),before=previous.near.samples.filter((_,i)=>i%3===2)
+  return rmsDifference(z,before)/(sample.time-previous.time)
+}))
+async function nativeRelease(page){
+  const index=await page.evaluate(()=>window.__sceneProbe.releaseEvents.length)
+  await page.mouse.move(-5,-5)
+  const released=await page.evaluate(index=>{
+    const probe=window.__sceneProbe
+    return {event:probe.releaseEvents.slice(index).find(event=>event.isTrusted&&!event.active),active:probe.sharedInput.pointer.active,
+      time:probe.lastSimulation.time,step:probe.lastSimulation.step,at:performance.now()}
+  },index)
+  expect(released.active).toBe(false)
+  // A native out/leave event, rather than a diagonal move to (0,0), ends input.
+  expect(released.event?.isTrusted).toBe(true)
+  return {...released,...released.event}
+}
+async function physicsSetup(page,{central=false}={}){
+  const audit=await fixtures(page,{asyncPhysics:true})
+  await open(page);await gpuReady(page);await assembled(page)
+  await page.evaluate(async()=>{
+    const probe=window.__sceneProbe,input=(await import('/particle-input.js')).getParticleInput()
+    probe.sharedInput=input;probe.gestureEvents=[];probe.releaseEvents=[]
+    window.addEventListener('pointermove',event=>{
+      if(probe.inputRecording)probe.gestureEvents.push({x:event.clientX,y:event.clientY,isTrusted:event.isTrusted,
+        timeStamp:event.timeStamp,at:performance.now(),speed:input.pointer.speed,active:input.pointer.active,
+        time:probe.lastSimulation.time,step:probe.lastSimulation.step,
+        accepted:(event.getCoalescedEvents?.().length?event.getCoalescedEvents():[event]).map(point=>({x:point.clientX,y:point.clientY,timeStamp:point.timeStamp,isTrusted:point.isTrusted}))})
+    },{passive:true})
+    const released=event=>{if(event.relatedTarget===null||event.type==='pointerleave')probe.releaseEvents.push({isTrusted:event.isTrusted,
+      type:event.type,timeStamp:event.timeStamp,at:performance.now(),time:probe.lastSimulation.time,step:probe.lastSimulation.step,active:input.pointer.active})}
+    window.addEventListener('pointerout',released,{passive:true})
+    document.documentElement.addEventListener('pointerleave',released,{passive:true})
+  })
+  await page.mouse.move(1,1);await nativeRelease(page);await advance(page,2.5)
+  const initial=await physical(page),bounds=initial.core.bounds,center={x:(bounds.left+bounds.right)/2,y:(bounds.top+bounds.bottom)/2}
+  const path={left:bounds.left-25,right:central?bounds.right+25:center.x,y:center.y,radius:(bounds.bottom-bounds.top)*.13}
+  const corridor=central?{...path,left:center.x-(bounds.right-bounds.left)*.12,right:center.x+(bounds.right-bounds.left)*.12}:path
+  await page.evaluate(({corridor,central})=>{const probe=window.__sceneProbe;probe.corridor=corridor;probe.fieldProbe=central},{corridor,central})
+  const quiet=await physicsWindow(page,'quiet')
+  expect(quiet.samples[0].near.count).toBeGreaterThan(20)
+  return {audit,initial,bounds,center,path,corridor,quiet}
+}
+async function physicsGesture(page,path,{duration,segments,label}){
+  await page.mouse.move(path.left,path.y)
+  await advance(page,.8)
+  await page.evaluate(label=>{const probe=window.__sceneProbe;probe.gestureEvents=[];probe.inputRecording=true;probe.startAsyncPhysics(label)},label)
+  const started=Date.now(),commands=[]
+  // Native input is scheduled by wall time independently of acknowledgements
+  // from a busy page, as an ordinary pointer continues moving while it renders.
+  await Promise.all(Array.from({length:segments},async(_,index)=>{
+    const delay=started+duration*(index+1)/segments-Date.now()
+    if(delay>0)await new Promise(resolve=>setTimeout(resolve,delay))
+    const command={index:index+1,x:path.left+(path.right-path.left)*(index+1)/segments,y:path.y,issuedAt:Date.now()-started}
+    commands.push(command);await page.mouse.move(command.x,command.y);command.acknowledgedAt=Date.now()-started
+  }))
+  const arrival=await page.evaluate(()=>{
+    const probe=window.__sceneProbe;probe.inputRecording=false
+    const last=probe.gestureEvents.at(-1)
+    return {time:last.time,wall:last.at,step:last.step,events:probe.gestureEvents,observedAfterAcknowledgementAt:performance.now()}
+  })
+  // Observe the first real compute after native arrival before leaving. Source
+  // frame times later select the matched .5s response without a Node poll.
+  await page.evaluate(async arrival=>{
+    const probe=window.__sceneProbe
+    if(probe.lastSimulation.step>arrival.step)return
+    await new Promise((resolve,reject)=>{
+      const timeout=setTimeout(()=>{document.removeEventListener('grade:hero-scene-frame',next);reject(new Error('No compute after native arrival'))},10000)
+      const next=event=>{if(event.detail.simulation?.step>arrival.step){clearTimeout(timeout);document.removeEventListener('grade:hero-scene-frame',next);resolve()}}
+      document.addEventListener('grade:hero-scene-frame',next)
+    })
+  },arrival)
+  const released=await nativeRelease(page)
+  // Collect response, inertia and return before draining. Discrete source frames
+  // select equal .5 post-arrival, .2 inertia and .35 return windows below.
+  await page.evaluate(async released=>{const capture=window.__sceneProbe.asyncCapture;capture.endTime=released.time+2.55;await capture.finished},released)
+  const complete=await page.evaluate(()=>window.__sceneProbe.stopAsyncPhysics())
+  verifyPhysicsWindow(complete)
+  const postEnd=complete.samples.findIndex(sample=>sample.time>=arrival.time+.5-1e-8)
+  expect(postEnd).toBeGreaterThanOrEqual(0)
+  const window={...complete,label:label+'-post-arrival',samples:complete.samples.slice(0,postEnd+1)}
+  const returned={...complete,label:'returned',samples:complete.samples.filter(sample=>sample.time>=released.time+2.2-1e-8)}
+  expect(window.samples.at(-1).time-arrival.time).toBeGreaterThanOrEqual(.5-1e-8)
+  expect(window.samples.at(-1).time-arrival.time).toBeLessThanOrEqual(.55+1e-8)
+  const accepted=arrival.events.flatMap(event=>event.accepted).filter((event,index,array)=>!index||event.timeStamp!==array[index-1].timeStamp||event.x!==array[index-1].x||event.y!==array[index-1].y)
+  expect(accepted).toHaveLength(segments)
+  expect(arrival.events.every(event=>event.isTrusted&&event.active)).toBe(true)
+  for(let index=0;index<segments;index++){
+    expect(accepted[index].x).toBeCloseTo(path.left+(path.right-path.left)*(index+1)/segments,2)
+    expect(accepted[index].y).toBeCloseTo(path.y,2)
+  }
+  expect(accepted.every(event=>event.isTrusted)).toBe(true)
+  return {window,complete,returned,arrival,accepted,commands:commands.sort((a,b)=>a.index-b.index),released,requestedDurationMs:duration,segments,actualNativeDurationMs:accepted.at(-1).timeStamp-accepted[0].timeStamp}
+}
+async function physicsReturn(page,quiet,gesture,initial){
+  const fast=gesture.window,inertia={...gesture.complete,label:'inertia-after-native-leave',samples:gesture.complete.samples.filter(sample=>
+    sample.step>gesture.released.step&&sample.time<=gesture.released.time+.2+1e-8)}
+  expect(inertia.samples.length).toBeGreaterThanOrEqual(4)
+  expect(inertia.samples.every(sample=>sample.pointerActive===0)).toBe(true)
+  expect(physicsMax(inertia,'energy')).toBeGreaterThan(physicsMax(quiet,'energy')*1.1)
+  const atRelease=fast.samples.findLast(sample=>sample.step<=gesture.released.step)
+  expect(rmsDifference(inertia.samples.at(-1).core.samples,atRelease.core.samples)).toBeGreaterThan(.001)
+  const returned=gesture.returned
+  expect(returned.samples.length).toBeGreaterThanOrEqual(4)
+  expect(returned.samples.at(-1).time-returned.samples[0].time).toBeGreaterThanOrEqual(.3-1e-8)
+  const Q=physicsMax(quiet,'rms'),E_Q=physicsMax(quiet,'energy'),P=physicsMax(fast,'rms'),fastEnergy=physicsMax(fast,'energy')
+  expect(P).toBeGreaterThan(Q)
+  const limits={quietRmsUpper:Q,quietEnergyUpper:E_Q,peakRms:P,returnRmsUpper:Q+.15*(P-Q),returnEnergyUpper:Math.min(.5*fastEnergy,1.5*E_Q)}
+  // Remove 85% of excess displacement above the measured background flow.
+  // The former .85*P could demand less displacement than the quiet shape itself.
+  expect(physicsMax(returned,'rms')).toBeLessThanOrEqual(limits.returnRmsUpper)
+  expect(physicsMax(returned,'energy')).toBeLessThan(limits.returnEnergyUpper)
+  for(const window of [quiet,fast,inertia,returned])for(const sample of window.samples)expect(sample.id).toBe(initial.id)
+  return {inertia,returned,limits}
+}
+async function savePhysicsProof(testInfo,name,value){
+  const file=testInfo.outputPath(name+'.json')
+  await writeFile(file,JSON.stringify(value,null,2))
+  await testInfo.attach(name,{path:file,contentType:'application/json'})
+}
+
+test('GPU matched native sweeps produce stronger fast XYZ repulsion, inertia and excess-displacement return',async({page},testInfo)=>{
+  test.setTimeout(120000)
+  const proof={frameMs:Number(process.env.GRADE_PARTICLE_TEST_FRAME_MS||0)}
+  try{
+    const setup=await physicsSetup(page),{audit,initial,path}=setup
+    Object.assign(proof,{path,quiet:setup.quiet})
+    proof.slow=await physicsGesture(page,path,{duration:1000,segments:12,label:'slow'})
+    await advance(page,.35)
+    proof.quietBeforeFast=await physicsWindow(page,'quiet-before-fast')
+    const quiet={...setup.quiet,samples:[...setup.quiet.samples,...proof.quietBeforeFast.samples]}
+    proof.fast=await physicsGesture(page,path,{duration:80,segments:12,label:'fast'})
+    const slow=proof.slow,fast=proof.fast
+    expect(fast.actualNativeDurationMs).toBeLessThan(slow.actualNativeDurationMs*.5)
+    expect(slow.actualNativeDurationMs).toBeLessThan(1800)
+    expect(fast.accepted.map(({x,y})=>({x,y}))).toEqual(slow.accepted.map(({x,y})=>({x,y})))
+    const metrics=proof.metrics={slowEnergy:physicsMax(slow.window,'energy'),fastEnergy:physicsMax(fast.window,'energy'),
+      slowZRate:physicsZRate(slow.window),fastZRate:physicsZRate(fast.window),fastZEnergy:physicsMax(fast.window,'zEnergy'),quietZEnergy:physicsMax(quiet,'zEnergy'),
+      slowSpeed:Math.max(...slow.arrival.events.map(e=>e.speed)),fastSpeed:Math.max(...fast.arrival.events.map(e=>e.speed))}
+    expect(metrics.fastSpeed).toBeGreaterThan(metrics.slowSpeed+.1)
+    expect(metrics.fastEnergy).toBeGreaterThan(metrics.slowEnergy*1.05)
+    expect(metrics.fastZEnergy).toBeGreaterThan(metrics.quietZEnergy*1.5)
+    expect(metrics.fastZRate).toBeGreaterThan(metrics.slowZRate*1.5)
+    proof.return=await physicsReturn(page,quiet,fast,initial)
+    clean(audit)
+  }finally{
+    if(await page.evaluate(()=>Boolean(window.__sceneProbe?.asyncCapture)).catch(()=>false))proof.unfinished=await page.evaluate(()=>window.__sceneProbe.stopAsyncPhysics())
+    proof.allWindows=await page.evaluate(()=>window.__sceneProbe.asyncWindows||[])
+    await savePhysicsProof(testInfo,'matched-native-gpu-response',proof)
+  }
+})
+
+test('one native jump leaves an interpolated field through the glyph with real central GPU depth and inertia',async({page},testInfo)=>{
+  test.setTimeout(120000)
+  const proof={frameMs:Number(process.env.GRADE_PARTICLE_TEST_FRAME_MS||0)}
+  try{
+    const setup=await physicsSetup(page,{central:true}),{audit,initial,path,quiet}=setup
+    Object.assign(proof,{path,corridor:setup.corridor,quiet})
+    expect(path.right).toBeGreaterThan(setup.bounds.right)
+    proof.jump=await physicsGesture(page,path,{duration:80,segments:1,label:'single-jump'})
+    const jump=proof.jump.window
+    const metrics=proof.metrics={quietEnergy:physicsMax(quiet,'energy'),jumpEnergy:physicsMax(jump,'energy'),
+      quietZEnergy:physicsMax(quiet,'zEnergy'),jumpZEnergy:physicsMax(jump,'zEnergy'),quietZRate:physicsZRate(quiet),jumpZRate:physicsZRate(jump),
+      centralFieldR:Math.max(...jump.samples.flatMap(sample=>sample.field.slice(1,4).map(point=>point.rgb[0]))),
+      quietFieldR:Math.max(...quiet.samples.flatMap(sample=>sample.field.slice(1,4).map(point=>point.rgb[0])))}
+    expect(metrics.centralFieldR).toBeGreaterThan(metrics.quietFieldR+50)
+    expect(metrics.jumpEnergy).toBeGreaterThan(metrics.quietEnergy*1.5)
+    expect(metrics.jumpZEnergy).toBeGreaterThan(metrics.quietZEnergy*1.5)
+    expect(metrics.jumpZRate).toBeGreaterThan(metrics.quietZRate*1.5)
+    proof.return=await physicsReturn(page,quiet,proof.jump,initial)
+    clean(audit)
+  }finally{
+    if(await page.evaluate(()=>Boolean(window.__sceneProbe?.asyncCapture)).catch(()=>false))proof.unfinished=await page.evaluate(()=>window.__sceneProbe.stopAsyncPhysics())
+    proof.allWindows=await page.evaluate(()=>window.__sceneProbe.asyncWindows||[])
+    await savePhysicsProof(testInfo,'single-jump-gpu-response',proof)
+  }
 })
 
 test('a stationary screen pointer keeps its ray current while scrolling the same GPU position and velocity targets',async({page})=>{
