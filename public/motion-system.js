@@ -126,7 +126,7 @@ function imageFrame(image) {
   if (!image?.complete || !image.naturalWidth || !visible(image)) return null
   const rect=image.getBoundingClientRect()
   if (rect.bottom<=0 || rect.top>=innerHeight || rect.right<=0 || rect.left>=innerWidth) return null
-  const holder=image.closest('.poster-placeholder,.detail-poster') || image
+  const holder=image.closest('.poster-placeholder,.detail-poster,.scene-atlas-tile') || image
   return {url:image.currentSrc || image.src,rect:{left:rect.left,top:rect.top,width:rect.width,height:rect.height},
     title:image.alt || '',radius:parseFloat(getComputedStyle(holder).borderRadius) || 0,
     objectPosition:getComputedStyle(image).objectPosition,cinema:image.hasAttribute('data-title-backdrop')}
@@ -155,8 +155,12 @@ export function prepareNavigation(link, route) {
   titleSession?.cancel(); titleSession=null; titleBridge=null
   const main=document.querySelector('#main')
   const card=link?.closest('.title-card,.cinema-film-link,.frame-result,.profile-review,.onboard-card')
-  const image=main?.querySelector('[data-title-backdrop]') || link?.querySelector('img') || card?.querySelector('img')
-  titleSource=imageFrame(image)
+  const searchScene=link?.closest('.search-scene'),id=/^\/title\/(\d+)$/.exec(new URL(route,location.href).pathname)?.[1]
+  const clickedImage=link?.querySelector('img') || card?.querySelector('img')
+  const image=searchScene ? clickedImage : main?.querySelector('[data-title-backdrop]') || clickedImage
+  const preview=searchScene && id && Number(gsap.getProperty(searchScene,'--scene-type-progress'))>=.99
+    ? searchScene.querySelector(`[data-scene-preview-title="${escaped(id)}"] img`) : null
+  titleSource=imageFrame(preview) || imageFrame(image)
   primeTitleLink(link)
   requestedRoute = new URL(route,location.href).pathname
   pendingLink = link
@@ -184,10 +188,10 @@ function sourcesFor(main) {
   return {posters:[]}
 }
 
-export async function leavePage(main,{content} = {}) {
+export async function leavePage(main,{content,headerCovered=false} = {}) {
   const navigation=navigationRevision, signal=titleAbort?.signal
   sameComposition = mounted && requestedRoute === lastRoute
-  filmTransition = mounted && !sameComposition && (titleRoute(requestedRoute) || titleRoute(lastRoute))
+  filmTransition = !headerCovered && mounted && !sameComposition && (titleRoute(requestedRoute) || titleRoute(lastRoute))
   const outgoingOpacity = Number(getComputedStyle(main).opacity)
   neutralizePosterImages(main)
   // Freeze the actual visible cover positions; measure them before cleanup so
@@ -195,8 +199,8 @@ export async function leavePage(main,{content} = {}) {
   disposeCollectionGallery?.hold?.(true)
   const cards = [...main.querySelectorAll('.title-card')]
   cards.forEach(card => { card.dataset.flipId = `card-${card.dataset.title}` })
-  cardState = sameComposition && !reducedMotion() ? Flip.getState(cards,{kill:false}) : null
-  const candidates = !sameComposition && !reducedMotion() ? sourcesFor(main) : {posters:[]}
+  cardState = !headerCovered && sameComposition && !reducedMotion() ? Flip.getState(cards,{kill:false}) : null
+  const candidates = !headerCovered && !sameComposition && !reducedMotion() ? sourcesFor(main) : {posters:[]}
   // Measure before stopping an in-flight tween, so repeated clicks start here.
   const nodes = [...candidates.posters,candidates.title].filter(node => node && visible(node))
   const measured = nodes.map(node => {
@@ -205,6 +209,7 @@ export async function leavePage(main,{content} = {}) {
   })
   stopPageEffects(); clearLayer()
   main.querySelectorAll('[data-reveal]').forEach(node => node.removeAttribute('data-reveal'))
+  if (headerCovered) { sameComposition=false; return }
   if (!mounted || reducedMotion() || sameComposition) return
   if (filmTransition) {
     // The optional shader owns a temporary fixed media field. Actual poster

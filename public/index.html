@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="/editorial.css">
   <link rel="stylesheet" href="/collection-motion.css">
   <link rel="stylesheet" href="/header-track.css">
+  <link rel="stylesheet" href="/header-scenes.css">
   <link rel="stylesheet" href="/hero-scene.css">
   <link rel="stylesheet" href="/particle-input.css">
   <link rel="stylesheet" href="/collection-gallery.css">
@@ -26,26 +27,34 @@
     <div class="header-inner">
       <a href="/" class="brand" aria-label="Grade — главная">grade<span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><use href="/icons.svg#brand"/></svg></span></a>
       <div class="header-controls">
-        <button class="header-control search-trigger" type="button" aria-controls="search-tray" aria-expanded="false"><span class="search-trigger-label">Поиск /</span></button>
-        <button class="header-control section-toggle menu-trigger" type="button" aria-controls="section-menu" aria-expanded="false" aria-label="Меню разделов"><span class="menu-trigger-label">Меню</span><span class="control-mark" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span></button>
+        <button id="header-search-trigger" class="header-control search-trigger" type="button" aria-controls="search-tray" aria-expanded="false"><span class="search-trigger-label">Поиск /</span></button>
+        <button id="header-menu-trigger" class="header-control section-toggle menu-trigger" type="button" aria-controls="section-menu" aria-expanded="false" aria-label="Меню разделов"><span class="menu-trigger-label">Меню</span><span class="control-mark" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span></button>
         <div id="account" class="account-area"></div>
       </div>
     </div>
     <section id="section-menu" class="scene-panel menu-scene" aria-labelledby="menu-scene-label" aria-hidden="true" hidden inert>
       <div class="scene-head" data-scene-reveal><p id="menu-scene-label" class="scene-eyebrow">Личная коллекция кино</p><button class="scene-close" data-close-scene type="button"><span class="scene-close-label">Закрыть</span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><use href="/icons.svg#close"/></svg></button></div>
-      <nav class="desktop-nav mobile-nav scene-nav" aria-label="Основная навигация">
-        <a href="/" data-nav="home" data-scene-reveal><span class="track-label">Обзор</span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><use href="/icons.svg#arrow-up-right"/></svg></a>
-        <a href="/collections" data-nav="collections" data-scene-reveal><span class="track-label">Подборки</span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><use href="/icons.svg#arrow-up-right"/></svg></a>
-        <a href="/catalog" data-nav="catalog" data-scene-reveal><span class="track-label">Каталог</span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><use href="/icons.svg#arrow-up-right"/></svg></a>
-        <a href="/me" data-nav="profile" data-scene-reveal><span class="track-label">Моя коллекция</span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><use href="/icons.svg#arrow-up-right"/></svg></a>
-      </nav>
+      <div class="menu-scene-layout">
+        <nav class="desktop-nav mobile-nav scene-nav" aria-label="Основная навигация">
+          <a href="/" data-nav="home" data-scene-reveal><span class="track-label">Обзор</span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><use href="/icons.svg#arrow-up-right"/></svg></a>
+          <a href="/collections" data-nav="collections" data-scene-reveal><span class="track-label">Подборки</span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><use href="/icons.svg#arrow-up-right"/></svg></a>
+          <a href="/catalog" data-nav="catalog" data-scene-reveal><span class="track-label">Каталог</span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><use href="/icons.svg#arrow-up-right"/></svg></a>
+          <a href="/me" data-nav="profile" data-scene-reveal><span class="track-label">Моя коллекция</span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><use href="/icons.svg#arrow-up-right"/></svg></a>
+        </nav>
+        <aside class="scene-atlas" data-scene-atlas="menu" aria-hidden="true"></aside>
+      </div>
       <div class="scene-footer" data-scene-reveal><a href="/about">О проекте</a><button id="language-switch" class="language-switch mobile-language" data-action="language" type="button" aria-label="Switch to English">English</button></div>
     </section>
     <section id="search-tray" class="scene-panel search-scene" aria-labelledby="search-scene-title" aria-hidden="true" hidden inert>
       <div class="scene-head" data-scene-reveal><p class="scene-eyebrow tray-eyebrow">В КОЛЛЕКЦИИ GRADE</p><button class="scene-close search-close" data-close-scene type="button" aria-label="Закрыть поиск"><span class="scene-close-label">Закрыть</span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><use href="/icons.svg#close"/></svg></button></div>
-      <h2 id="search-scene-title" class="search-scene-title" data-scene-reveal>Название, которое ищете.</h2>
-      <form id="search-form" class="header-search" role="search" data-scene-reveal><label for="search" class="sr-only">Найти аниме, фильм или сериал</label><input id="search" type="search" name="q" maxlength="100" placeholder="Название фильма, аниме или сериала" autocomplete="off" aria-controls="search-results"><button class="search-submit" type="submit" aria-label="Все результаты"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></button></form>
-      <div data-scene-reveal><div class="search-results-meta"><span id="search-status" role="status" aria-live="polite"></span></div><div id="search-results"></div></div>
+      <div class="search-scene-layout">
+        <div class="search-scene-query">
+          <h2 id="search-scene-title" class="search-scene-title" data-scene-reveal>Название, которое ищете.</h2>
+          <form id="search-form" class="header-search" role="search" data-scene-reveal><label for="search" class="sr-only">Найти аниме, фильм или сериал</label><input id="search" type="search" name="q" maxlength="100" placeholder="Название фильма, аниме или сериала" autocomplete="off" aria-controls="search-results"><button class="search-submit" type="submit" aria-label="Все результаты"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></button></form>
+          <div class="search-scene-results" data-scene-reveal><div class="search-results-meta"><span id="search-status" role="status" aria-live="polite"></span></div><div id="search-results"></div></div>
+        </div>
+        <aside class="scene-atlas" data-scene-atlas="search" aria-hidden="true"></aside>
+      </div>
     </section>
   </header>
   <main id="main" tabindex="-1"><div class="loading" role="status">Загрузка</div></main>

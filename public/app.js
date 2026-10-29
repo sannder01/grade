@@ -4,7 +4,7 @@ import { preparePhoto } from './photo.js'
 import { mountMotion, leavePage, syncNavigation, enableGestures, prepareNavigation } from './motion.js'
 import { mountTrailer, closeTrailer } from './trailer.js'
 import { loadCollections, collectionCards, collectionGallery, collectionBySlug } from './collections.js'
-import { initializeHeader, closeHeaderPanels, openHeaderSearch, viewerPass } from './header-track.js'
+import { initializeHeader, closeHeaderPanels, openHeaderSearch, viewerPass, prepareHeaderNavigation, cancelHeaderNavigation, getHeaderTransition, settleHeaderNavigation, headerSceneActive, captureHeaderContext, restoreHeaderContext } from './header-track.js'
 
 const main = document.querySelector('#main')
 const filterControls = '#collection-sort,#catalog-sort,#catalog-genre,#catalog-from,.catalog-toolbar .category-pills a,.catalog-views a'
@@ -19,19 +19,20 @@ function rememberView(link = null) {
   // WebKit touch activation can blur an anchor before click reaches the router.
   // Its explicit navigation target still owns the return focus.
   const owner=link || document.activeElement
-  views.set(entryKey, { scroll: scrollY, focus: owner?.id, focusHref: owner?.closest('a[href]')?.getAttribute('href'), comment: comment?.value })
+  views.set(entryKey, { scroll: scrollY, focus: owner?.id, focusHref: owner?.closest('a[href]')?.getAttribute('href'), comment: comment?.value, header: captureHeaderContext(link) })
   if (views.size > 40) views.delete(views.keys().next().value)
 }
 function navigate(url, replace = false, link = null) {
   rememberView(link)
+  const headerTransition = prepareHeaderNavigation(link,url)
   prepareNavigation(link, url)
-  closeHeaderPanels()
+  if (!headerTransition) closeHeaderPanels()
   const samePage = new URL(url, location.href).pathname === location.pathname
   const keepFilterFocus = samePage && (location.pathname === '/catalog' || /^\/collections\/[a-z-]+$/.test(location.pathname))
   const previous = location.pathname + location.search
   entryKey = crypto.randomUUID()
   history[replace ? 'replaceState' : 'pushState']({ gradeKey: entryKey, gradeFrom: previous }, '', url)
-  render({ resetScroll: !samePage, keepFilterFocus })
+  render({ resetScroll: !samePage, keepFilterFocus, headerTransition })
 }
 async function refreshMe() {
   const data = await api('/api/me')
@@ -69,7 +70,7 @@ function authModal(mode = 'login') {
   }
 }
 
-async function render({ resetScroll = false, restore = null, keepFilterFocus = false } = {}) {
+async function render({ resetScroll = false, restore = null, keepFilterFocus = false, headerTransition = getHeaderTransition() } = {}) {
   closeTrailer()
   const generation = ++state.generation
   const path = location.pathname
@@ -92,13 +93,22 @@ async function render({ resetScroll = false, restore = null, keepFilterFocus = f
     else if (path === '/me' || path.startsWith('/u/')) {
       if (path === '/me') {
         if (!state.me) content = loginRequired()
-        else { history.replaceState({ ...history.state },'',`/u/${encodeURIComponent(state.me.user.username)}${location.search}`); return render({ resetScroll, restore }) }
+        else { history.replaceState({ ...history.state },'',`/u/${encodeURIComponent(state.me.user.username)}${location.search}`); return render({ resetScroll, restore, headerTransition }) }
       } else content = await profilePage(decodeURIComponent(path.slice(3)))
     } else if (path === '/start') content = state.me ? await onboardingPage() : loginRequired()
     else if (path === '/about') content = aboutPage()
     else content = empty(t('Страница не найдена'), t('Вернитесь в каталог'))
     if (generation !== state.generation) return
-    await leavePage(main,{content})
+    // Fetch while the same menu images expand. Commit only behind a completed
+    // cover; a cancelled/unsupported enhancement follows the ordinary route.
+    const headerCovered = headerTransition ? await headerTransition.covered : false
+    if (generation !== state.generation) return
+    if (headerTransition && !headerCovered) settleHeaderNavigation(headerTransition)
+    // A fast film click can replace a still-fading atlas session. Finish that
+    // short cancellation before C claims its visual field; API loading overlaps.
+    if (!headerCovered) await cancelHeaderNavigation()
+    if (generation !== state.generation) return
+    await leavePage(main,{content,headerCovered})
     if (generation !== state.generation) return
     // Capture the current owner at commit: the user may Tab to another filter
     // or open search while awaiting the API. Never pull focus from that scene.
@@ -116,8 +126,10 @@ async function render({ resetScroll = false, restore = null, keepFilterFocus = f
       if (restore?.focus) document.getElementById(restore.focus)?.focus({ preventScroll:true })
       else if (restore?.focusHref) main.querySelector(`a[href="${CSS.escape(restore.focusHref)}"]`)?.focus({ preventScroll:true })
     }
-    if (main.inert && restore) document.addEventListener('grade:scene-closed',restoreFocus,{once:true})
-    else restoreFocus()
+    if (!restore?.header) {
+      if (main.inert && restore) document.addEventListener('grade:scene-closed',restoreFocus,{once:true})
+      else restoreFocus()
+    }
     if (!restore && filterView) {
       const target = filterView.id ? document.getElementById(filterView.id)
         : [...main.querySelectorAll(filterControls)].find(node => node.dataset.filterKey === filterView.key)
@@ -125,17 +137,23 @@ async function render({ resetScroll = false, restore = null, keepFilterFocus = f
     }
     await mountMotion(main)
     if (generation !== state.generation) return
+    if (headerCovered) await headerTransition.present(main)
+    if (generation !== state.generation) return
+    if (restore?.header) await restoreHeaderContext(restore.header)
+    if (generation !== state.generation) return
     document.title = path.startsWith('/title/') && state.title ? `${state.title.name} — Grade` : t('Grade — оценки аниме, фильмов и сериалов')
     const search = params().get('q') || ''
-    if (!document.querySelector('.track-header').classList.contains('search-is-open')) document.querySelector('#search').value = search
+    if (path === '/catalog' && !restore?.header && !document.querySelector('.track-header').classList.contains('search-is-open')) document.querySelector('#search').value = search
   } catch (error) {
+    if (generation !== state.generation) return
+    await headerTransition?.cancel()
     if (generation !== state.generation) return
     main.innerHTML = html`<section class="container error-page" role="alert"><h1>Не удалось открыть страницу</h1><p>${esc(error.message)}</p><button class="button primary" data-action="retry">Повторить</button></section>`
     if (resetScroll) window.scrollTo({ top:0,behavior:'instant' })
     await mountMotion(main)
   } finally {
     if (generation === state.generation) {
-      main.inert = [...document.querySelectorAll('.scene-panel')].some(panel => !panel.hidden)
+      main.inert = headerSceneActive()
       main.removeAttribute('aria-busy'); main.removeAttribute('aria-hidden')
     }
   }
@@ -538,7 +556,7 @@ document.addEventListener('click', async (event) => {
   event.preventDefault(); navigate(target.pathname + target.search, false, link)
 })
 document.querySelector('#search-form').onsubmit = (event) => {
-  event.preventDefault(); navigate(urlFor({q:document.querySelector('#search').value.trim()}))
+  event.preventDefault(); navigate(urlFor({q:document.querySelector('#search').value.trim()}),false,event.currentTarget)
 }
 document.addEventListener('keydown',(event) => {
   if (event.key === '/' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.target.closest('input,textarea,select,[contenteditable]') && !document.querySelector('dialog[open]')) { event.preventDefault(); openHeaderSearch() }
@@ -548,8 +566,9 @@ document.querySelector('#modal').addEventListener('cancel',event => { event.prev
 document.querySelector('#modal').addEventListener('click',(event) => { if (event.target === event.currentTarget) closeModal() })
 document.addEventListener('error',(event) => { if (event.target instanceof HTMLImageElement) event.target.remove() },true)
 window.addEventListener('popstate',() => {
-  closeHeaderPanels()
   rememberView()
+  cancelHeaderNavigation()
+  closeHeaderPanels()
   entryKey = history.state?.gradeKey || crypto.randomUUID()
   prepareNavigation(null, location.pathname + location.search)
   render({ resetScroll:true, restore:views.get(entryKey) })
